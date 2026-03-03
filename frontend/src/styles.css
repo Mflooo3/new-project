@@ -1752,6 +1752,27 @@ textarea {
   line-height: 1.55;
 }
 
+.content-modal-paragraph {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.7;
+  text-align: right;
+}
+
+.content-modal-list {
+  margin: 0;
+  padding-inline-start: 1.2rem;
+  list-style: disc;
+  display: grid;
+  gap: 10px;
+  line-height: 1.8;
+  text-align: right;
+}
+
+.content-modal-list li {
+  color: #ffffff;
+}
+
 .v2-command-center {
   margin-top: 12px;
   display: grid;
@@ -1796,6 +1817,61 @@ textarea {
   line-height: 1.5;
 }
 
+.v2-narrative.is-live {
+  border-color: rgba(88, 199, 255, 0.78);
+  box-shadow: 0 0 0 1px rgba(88, 199, 255, 0.24);
+}
+
+.v2-narrative.is-new-live {
+  border-color: rgba(106, 245, 212, 0.85);
+  box-shadow: 0 0 0 1px rgba(106, 245, 212, 0.3);
+}
+
+.v2-narrative-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-new-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(132, 201, 226, 0.65);
+  border-radius: 999px;
+  padding: 2px 10px;
+  color: #e7f5ff;
+  background: rgba(132, 201, 226, 0.12);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.live-new-indicator.live {
+  border-color: rgba(106, 245, 212, 0.85);
+  color: #c8ffef;
+  background: rgba(106, 245, 212, 0.14);
+}
+
+.live-new-indicator.idle {
+  border-color: rgba(132, 201, 226, 0.55);
+  color: #d8e9f3;
+  background: rgba(132, 201, 226, 0.08);
+}
+
+.narrative-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(132, 201, 226, 0.6);
+  color: #d7e8f2;
+  background: rgba(132, 201, 226, 0.12);
+  font-size: 0.78rem;
+  cursor: help;
+}
+
 .v2-freshness-chips {
   display: flex;
   flex-wrap: wrap;
@@ -1837,6 +1913,10 @@ textarea {
 }
 
 .v2-story-stream {
+  grid-column: 1 / -1;
+}
+
+.v2-focus-panel {
   grid-column: 1 / -1;
 }
 
@@ -1933,6 +2013,24 @@ textarea {
   line-height: 1.45;
 }
 
+.v2-focus-panel.focus-flash {
+  border-color: rgba(247, 181, 56, 0.9);
+  box-shadow: 0 0 0 1px rgba(247, 181, 56, 0.35), 0 0 24px rgba(247, 181, 56, 0.18);
+  animation: focusPanelPulse 0.85s ease-out;
+}
+
+@keyframes focusPanelPulse {
+  0% {
+    transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-2px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
 .v2-predictions-panel {
   grid-column: 1 / -1;
 }
@@ -2001,6 +2099,7 @@ textarea {
   display: grid;
   gap: 4px;
   font-family: "Dubai", "Cairo", sans-serif;
+  cursor: pointer;
 }
 
 .v2-ticket-btn.active {
@@ -2010,6 +2109,20 @@ textarea {
 
 .v2-ticket-btn small {
   color: var(--muted);
+}
+
+.ticket-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ticket-delete-btn {
+  min-width: 58px;
+  white-space: nowrap;
+  padding: 6px 10px;
+  line-height: 1;
 }
 
 .v2-prediction-details {

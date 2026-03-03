@@ -209,3 +209,7 @@ class AIPredictionLeaderboardRow(BaseModel):
     partial_count: int
     wrong_count: int
     trend_delta: float
+
+
+class AIPredictionDeleteResponse(BaseModel):
+    deleted_count: int = 0

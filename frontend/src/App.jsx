@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, streamEvents } from "./api";
 
 const sourceTypeOptions = [
@@ -546,6 +546,29 @@ function cleanOperationalTaggedText(value) {
   return text.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function toReadableBullets(value) {
+  const text = String(value || "").replace(/\r/g, "\n").trim();
+  if (!text) return [];
+  const normalized = text.replace(/(^|[\s:؛،.])([0-9]+[.)])/g, "$1\n$2");
+  const chunks = normalized
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const items = chunks
+    .map((line) =>
+      line
+        .replace(/^[\u2022•\-–—]\s*/, "")
+        .replace(/^[0-9]+[.)]\s*/, "")
+        .trim()
+    )
+    .filter(Boolean);
+  if (items.length > 1) return items;
+  return text
+    .split(/[.!؟]\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 function makePredictionWorkspace(id, index) {
   return {
     id,
@@ -893,6 +916,8 @@ export default function App() {
   const [predictionLeaderboard, setPredictionLeaderboard] = useState([]);
   const [creatingPrediction, setCreatingPrediction] = useState(false);
   const [updatingPrediction, setUpdatingPrediction] = useState(false);
+  const [deletingPredictionId, setDeletingPredictionId] = useState(null);
+  const [clearingPredictionTickets, setClearingPredictionTickets] = useState(false);
   const [predictionNote, setPredictionNote] = useState("");
   const [liveNotices, setLiveNotices] = useState([]);
 
@@ -909,6 +934,8 @@ export default function App() {
   const [contentModal, setContentModal] = useState(null);
   const [arabicMap, setArabicMap] = useState({});
   const [seenEventIds, setSeenEventIds] = useState([]);
+  const [v2FocusFlash, setV2FocusFlash] = useState(false);
+  const v2FocusPanelRef = useRef(null);
 
   const loadAll = useCallback(async () => {
     try {
@@ -1554,6 +1581,18 @@ export default function App() {
     setSeenEventIds((prev) => (prev.includes(eventId) ? prev : [...prev, eventId]));
   }
 
+  function focusV2Story(eventId) {
+    if (!eventId) return;
+    setV2FocusedEventId(eventId);
+    markEventSeen(eventId);
+    setV2SelectedEventIds((prev) => (prev.includes(eventId) ? prev : [eventId, ...prev]));
+    setV2FocusFlash(true);
+    setTimeout(() => setV2FocusFlash(false), 850);
+    setTimeout(() => {
+      v2FocusPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
   function toggleV2Selected(eventId) {
     if (!eventId) return;
     setV2SelectedEventIds((prev) => (prev.includes(eventId) ? prev.filter((id) => id !== eventId) : [...prev, eventId]));
@@ -1672,6 +1711,43 @@ export default function App() {
       setError(err.message || "فشل تحديث نتيجة التوقع.");
     } finally {
       setUpdatingPrediction(false);
+    }
+  }
+
+  async function deletePredictionTicket(ticketId) {
+    if (!ticketId) return;
+    setDeletingPredictionId(ticketId);
+    try {
+      await apiDelete(`/ai/predictions/${ticketId}`);
+      if (selectedPredictionTicket?.id === ticketId) {
+        updateActivePredictionWorkspace({ selectedPredictionId: null });
+        setPredictionUpdates([]);
+      }
+      await loadAll();
+    } catch (err) {
+      setError(err.message || "فشل حذف التذكرة.");
+    } finally {
+      setDeletingPredictionId(null);
+    }
+  }
+
+  async function clearScopedPredictionTickets() {
+    if (filteredPredictionTickets.length === 0 || clearingPredictionTickets) return;
+    const ok = window.confirm(`سيتم حذف ${filteredPredictionTickets.length} تذكرة من السجل الحالي. هل تريد المتابعة؟`);
+    if (!ok) return;
+    setClearingPredictionTickets(true);
+    try {
+      for (const ticket of filteredPredictionTickets) {
+        // eslint-disable-next-line no-await-in-loop
+        await apiDelete(`/ai/predictions/${ticket.id}`);
+      }
+      updateActivePredictionWorkspace({ selectedPredictionId: null });
+      setPredictionUpdates([]);
+      await loadAll();
+    } catch (err) {
+      setError(err.message || "فشل مسح سجل التذاكر.");
+    } finally {
+      setClearingPredictionTickets(false);
     }
   }
 
@@ -2831,6 +2907,34 @@ export default function App() {
               <small>كل بطاقة تبيّن عمر الخبر الفعلي لحظة العرض.</small>
             </article>
 
+            <article ref={v2FocusPanelRef} id="v2-focus-panel" className={`panel v2-focus-panel ${v2FocusFlash ? "focus-flash" : ""}`}>
+              <div className="panel-head">
+                <h3>تركيز القصة</h3>
+                <span>{v2FocusedEvent ? `S${v2FocusedEvent.severity} | ${formatRelativeTime(eventDisplayTime(v2FocusedEvent))}` : "لا يوجد"}</span>
+              </div>
+              {v2FocusedEvent ? (
+                <>
+                  <h4>{displayText(v2FocusedEvent.title)}</h4>
+                  <p>{displayText(v2FocusedEvent.summary) || "لا يوجد ملخص."}</p>
+                  <p className="details-meta">
+                    {displayText(v2FocusedEvent.source_name)} | {formatTime(eventDisplayTime(v2FocusedEvent))}
+                  </p>
+                  <div className="quick-topics">
+                    <button className="btn btn-small btn-ghost" type="button" onClick={() => openEventPopup(v2FocusedEvent.id, { scope: "v2" })}>
+                      فتح التفاصيل
+                    </button>
+                    {v2FocusedEvent.url ? (
+                      <a className="btn btn-small btn-ghost source-link-btn" href={v2FocusedEvent.url} target="_blank" rel="noreferrer">
+                        زيارة الموقع الأصلي
+                      </a>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <p>لا توجد قصة محددة حالياً.</p>
+              )}
+            </article>
+
             <article className="panel v2-story-stream">
               <div className="panel-head">
                 <h3>تدفق القصص المدمجة</h3>
@@ -2847,8 +2951,7 @@ export default function App() {
                     onClick={(event) => {
                       const target = event.target;
                       if (target instanceof Element && target.closest("button, a")) return;
-                      setV2FocusedEventId(group.lead.id);
-                      markEventSeen(group.lead.id);
+                      focusV2Story(group.lead.id);
                     }}
                   >
                     <div className="v2-story-meta">
@@ -2879,8 +2982,7 @@ export default function App() {
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          setV2FocusedEventId(group.lead.id);
-                          markEventSeen(group.lead.id);
+                          focusV2Story(group.lead.id);
                         }}
                       >
                         تركيز
@@ -2899,34 +3001,6 @@ export default function App() {
                   </article>
                 ))}
               </div>
-            </article>
-
-            <article className="panel v2-focus-panel">
-              <div className="panel-head">
-                <h3>تركيز القصة</h3>
-                <span>{v2FocusedEvent ? `S${v2FocusedEvent.severity} | ${formatRelativeTime(eventDisplayTime(v2FocusedEvent))}` : "لا يوجد"}</span>
-              </div>
-              {v2FocusedEvent ? (
-                <>
-                  <h4>{displayText(v2FocusedEvent.title)}</h4>
-                  <p>{displayText(v2FocusedEvent.summary) || "لا يوجد ملخص."}</p>
-                  <p className="details-meta">
-                    {displayText(v2FocusedEvent.source_name)} | {formatTime(eventDisplayTime(v2FocusedEvent))}
-                  </p>
-                  <div className="quick-topics">
-                    <button className="btn btn-small btn-ghost" type="button" onClick={() => openEventPopup(v2FocusedEvent.id, { scope: "v2" })}>
-                      فتح التفاصيل
-                    </button>
-                    {v2FocusedEvent.url ? (
-                      <a className="btn btn-small btn-ghost source-link-btn" href={v2FocusedEvent.url} target="_blank" rel="noreferrer">
-                        زيارة الموقع الأصلي
-                      </a>
-                    ) : null}
-                  </div>
-                </>
-              ) : (
-                <p>لا توجد قصة محددة حالياً.</p>
-              )}
             </article>
 
             <article className="panel v2-predictions-panel">
@@ -2982,7 +3056,10 @@ export default function App() {
                   </select>
                 </label>
                 <button className="btn btn-small btn-danger" type="button" onClick={clearActivePredictionWorkspace}>
-                  مسح النموذج
+                  مسح حقول النموذج
+                </button>
+                <button className="btn btn-small btn-danger" type="button" onClick={clearScopedPredictionTickets} disabled={clearingPredictionTickets}>
+                  {clearingPredictionTickets ? "جارٍ مسح السجل..." : `مسح سجل التذاكر (${filteredPredictionTickets.length})`}
                 </button>
               </div>
               <div className="source-form">
@@ -3044,20 +3121,32 @@ export default function App() {
               <div className="v2-prediction-layout">
                 <div className="v2-prediction-list">
                   {filteredPredictionTickets.map((ticket) => (
-                    <button
+                    <article
                       key={ticket.id}
-                      type="button"
                       className={`v2-ticket-btn ${selectedPredictionTicket?.id === ticket.id ? "active" : ""}`}
                       onClick={() => updateActivePredictionWorkspace({ selectedPredictionId: ticket.id })}
                     >
-                      <strong>{displayText(ticket.title)}</strong>
+                      <div className="ticket-head">
+                        <strong>{displayText(ticket.title)}</strong>
+                        <button
+                          className="btn btn-small btn-danger ticket-delete-btn"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void deletePredictionTicket(ticket.id);
+                          }}
+                          disabled={deletingPredictionId === ticket.id}
+                        >
+                          {deletingPredictionId === ticket.id ? "..." : "حذف"}
+                        </button>
+                      </div>
                       <small>
                         {displayText(ticket.focus_query)} | {ticket.status} | {ticket.outcome}
                       </small>
                       <small>
                         الاستحقاق: {predictionDueAt(ticket) ? formatTime(predictionDueAt(ticket).toISOString()) : "غير متاح"}
                       </small>
-                    </button>
+                    </article>
                   ))}
                   {filteredPredictionTickets.length === 0 ? <p>لا توجد تذاكر ضمن الفلاتر الحالية.</p> : null}
                 </div>
@@ -3198,7 +3287,19 @@ export default function App() {
             </div>
             {contentModal.createdAt ? <p className="details-meta">{formatTime(contentModal.createdAt)}</p> : null}
             <article className="detail-block content-modal-body">
-              <p>{String(contentModal.content || "لا يوجد محتوى.")}</p>
+              {(() => {
+                const items = toReadableBullets(contentModal.content);
+                if (items.length > 1) {
+                  return (
+                    <ul className="content-modal-list">
+                      {items.map((item, index) => (
+                        <li key={`modal-item-${index}`}>{item}</li>
+                      ))}
+                    </ul>
+                  );
+                }
+                return <p className="content-modal-paragraph">{String(contentModal.content || "لا يوجد محتوى.")}</p>;
+              })()}
             </article>
           </article>
         </div>
@@ -3256,3 +3357,4 @@ export default function App() {
     </div>
   );
 }
+

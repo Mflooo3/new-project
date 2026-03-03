@@ -11,7 +11,7 @@ from reportlab.lib.utils import simpleSplit
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
-from sqlmodel import Session, desc, select
+from sqlmodel import Session, delete, desc, select
 
 from app.config import settings
 from app.models import AIPredictionTicket, AIPredictionUpdate, AIChatMessage, AIInsight, Event
@@ -244,6 +244,15 @@ class AIWorkspaceService:
             .order_by(desc(AIPredictionUpdate.created_at))
             .limit(limit)
         ).all()
+
+    def delete_prediction_ticket(self, ticket_id: int) -> bool:
+        ticket = self.session.get(AIPredictionTicket, ticket_id)
+        if ticket is None:
+            return False
+        self.session.exec(delete(AIPredictionUpdate).where(AIPredictionUpdate.ticket_id == ticket_id))
+        self.session.exec(delete(AIPredictionTicket).where(AIPredictionTicket.id == ticket_id))
+        self.session.commit()
+        return True
 
     def get_prediction_leaderboard(self) -> list[dict[str, Any]]:
         windows: list[tuple[int, str]] = [

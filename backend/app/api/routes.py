@@ -19,6 +19,7 @@ from app.schemas import (
     AIInsightRead,
     AIPrivacyRead,
     AIPredictionCreate,
+    AIPredictionDeleteResponse,
     AIPredictionLeaderboardRow,
     AIPredictionOutcomeSet,
     AIPredictionTicketRead,
@@ -472,6 +473,22 @@ def ai_prediction_outcome(
         }
     )
     return _as_prediction_ticket_read(ticket)
+
+
+@router.delete("/ai/predictions/{ticket_id}", response_model=AIPredictionDeleteResponse)
+def ai_prediction_delete(ticket_id: int, session: Session = Depends(get_session)) -> AIPredictionDeleteResponse:
+    service = AIWorkspaceService(session=session)
+    deleted = service.delete_prediction_ticket(ticket_id=ticket_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Prediction ticket not found")
+    event_bus.publish_nowait(
+        {
+            "type": "prediction",
+            "action": "deleted",
+            "ticket_id": ticket_id,
+        }
+    )
+    return AIPredictionDeleteResponse(deleted_count=1)
 
 
 @router.get("/ai/reports", response_model=list[AIReportRead])
