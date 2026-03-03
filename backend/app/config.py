@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     database_url: str = "sqlite:///./data/gulf_watch.db"
     poll_seconds: int = 120
+    news_max_age_hours: int = 24
     use_redis_worker: bool = False
     redis_url: str = "redis://localhost:6379/0"
     ingest_queue_name: str = "ingestion"
@@ -42,6 +43,9 @@ class Settings(BaseSettings):
     gnews_api_key: str | None = None
     newsapi_api_key: str | None = None
     apify_token: str | None = None
+    x_api_key: str | None = None
+    x_api_bearer_token: str | None = None
+    x_api_base_url: str = "https://api.x.com/2"
 
     gulf_keywords: str = (
         "gulf,hormuz,uae,saudi,bahrain,kuwait,qatar,oman,iran,iraq,yemen,"
@@ -66,6 +70,8 @@ class Settings(BaseSettings):
     default_cyber_parser_hint: str = "cyber_rss"
     default_social_feed: str | None = None
     default_social_parser_hint: str = "social_reddit_json"
+    default_x_recent_feed: str | None = None
+    default_x_recent_parser_hint: str = "x_recent"
     default_cnn_gulf_feed: str | None = None
     default_alarabiya_gulf_feed: str | None = None
     default_gulfnews_feed: str | None = None

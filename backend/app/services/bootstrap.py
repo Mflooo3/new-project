@@ -70,6 +70,15 @@ def seed_default_sources(session: Session) -> None:
                 parser_hint=settings.default_social_parser_hint,
             )
         )
+    if settings.default_x_recent_feed:
+        defaults.append(
+            Source(
+                name="X Gulf Live Feed",
+                source_type="social",
+                endpoint=settings.default_x_recent_feed,
+                parser_hint=settings.default_x_recent_parser_hint,
+            )
+        )
     if settings.default_cnn_gulf_feed:
         defaults.append(
             Source(

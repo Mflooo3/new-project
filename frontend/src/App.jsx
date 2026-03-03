@@ -218,6 +218,30 @@ const presetSources = [
     endpoint: "https://www.reddit.com/r/worldnews/new.json?limit=80",
     parser_hint: "social_reddit_json",
     poll_interval_seconds: 240
+  },
+  {
+    name: "X Trusted GCC Agencies",
+    source_type: "social",
+    endpoint:
+      "https://api.x.com/2/tweets/search/recent?query=(from%3Awamnews%20OR%20from%3Aspagov%20OR%20from%3AQNAArabic%20OR%20from%3AKUNAArabTimes%20OR%20from%3ABNA_BH%20OR%20from%3AOmanNewsAgency)%20(%D8%B9%D8%A7%D8%AC%D9%84%20OR%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20OR%20%D8%A7%D9%84%D8%AE%D9%84%D9%8A%D8%AC%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA)%20lang%3Aar%20-is%3Aretweet&max_results=60",
+    parser_hint: "x_recent",
+    poll_interval_seconds: 90
+  },
+  {
+    name: "X Trusted Arab News Channels",
+    source_type: "social",
+    endpoint:
+      "https://api.x.com/2/tweets/search/recent?query=(from%3Acnnarabic%20OR%20from%3ASkyNewsArabia%20OR%20from%3AAlArabiya%20OR%20from%3AAlHadath%20OR%20from%3ACNBCArabia)%20(%D8%B9%D8%A7%D8%AC%D9%84%20OR%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20OR%20%D8%A7%D9%84%D8%AE%D9%84%D9%8A%D8%AC%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA)%20lang%3Aar%20-is%3Aretweet&max_results=60",
+    parser_hint: "x_recent",
+    poll_interval_seconds: 90
+  },
+  {
+    name: "X Trusted Intl Arabic + Gulf",
+    source_type: "social",
+    endpoint:
+      "https://api.x.com/2/tweets/search/recent?query=(from%3ABBCAArabic%20OR%20from%3AFR24_ar%20OR%20from%3AAJArabic%20OR%20from%3ASkyNews%20OR%20from%3AQNAEnglish)%20(gulf%20OR%20uae%20OR%20saudi%20OR%20qatar%20OR%20kuwait%20OR%20bahrain%20OR%20oman%20OR%20breaking)%20-is%3Aretweet&max_results=60",
+    parser_hint: "x_recent",
+    poll_interval_seconds: 90
   }
 ];
 
@@ -250,7 +274,9 @@ const trustedDomains = [
   "opensky-network.org",
   "marinetraffic.com",
   "flightradar24.com",
-  "reddit.com"
+  "reddit.com",
+  "x.com",
+  "twitter.com"
 ];
 
 const trustedNameMarkers = [
@@ -276,7 +302,8 @@ const trustedNameMarkers = [
   "cisa",
   "opensky",
   "marinetraffic",
-  "flightradar"
+  "flightradar",
+  "x gulf live feed"
 ];
 
 const arabicBreakingSources = new Set([
@@ -328,6 +355,8 @@ const arabicPreferredNewsDomains = [
 ];
 
 const LIST_PAGE_SIZE = 3;
+const SOURCE_DRAWER_PAGE_SIZE = 5;
+const DEFAULT_NEWS_WINDOW_HOURS = Math.max(0, Number(import.meta.env.VITE_NEWS_MAX_AGE_HOURS || 24));
 
 const skyVideoSources = [
   {
@@ -390,11 +419,19 @@ function forceUnmutedEmbedUrl(value) {
 function formatTime(value) {
   if (!value) return "غير متاح";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "غير متاح" : date.toLocaleString("ar-EG", { hour12: false });
+  return Number.isNaN(date.getTime()) ? "غير متاح" : date.toLocaleString("ar-AE", { hour12: false, timeZone: "Asia/Dubai" });
 }
 
 function eventDisplayTime(row) {
   return row?.created_at || row?.event_time || null;
+}
+
+function isLiveFreshNews(row, maxAgeHours) {
+  if (Number(maxAgeHours) <= 0) return true;
+  if (!row || row.source_type !== "news") return true;
+  const date = new Date(eventDisplayTime(row));
+  if (Number.isNaN(date.getTime())) return false;
+  return Date.now() - date.getTime() <= Number(maxAgeHours) * 60 * 60 * 1000;
 }
 
 function severityMeaning(level) {
@@ -890,8 +927,10 @@ export default function App() {
   const [selectedSourceNames, setSelectedSourceNames] = useState([]);
   const [trustedOnly, setTrustedOnly] = useState(true);
   const [includePeople, setIncludePeople] = useState(true);
+  const [newsWindowHours, setNewsWindowHours] = useState(String(DEFAULT_NEWS_WINDOW_HOURS));
 
   const [sourceDrawerOpen, setSourceDrawerOpen] = useState(false);
+  const [sourcePage, setSourcePage] = useState(1);
   const [sourceForm, setSourceForm] = useState(initialSourceForm);
 
   const [leftTab, setLeftTab] = useState("feed");
@@ -1033,8 +1072,9 @@ export default function App() {
     if (sourceFilter !== "all") rows = rows.filter((r) => r.source_type === sourceFilter);
     if (severityFilter !== "all") rows = rows.filter((r) => r.severity === Number(severityFilter));
     if (!includePeople) rows = rows.filter((r) => r.source_type !== "social");
+    rows = rows.filter((r) => isLiveFreshNews(r, Number(newsWindowHours || 24)));
     return rows;
-  }, [sourceScopedEvents, sourceFilter, severityFilter, includePeople]);
+  }, [sourceScopedEvents, sourceFilter, severityFilter, includePeople, newsWindowHours]);
 
   const sortedFilteredEvents = useMemo(
     () => [...filteredEvents].sort((a, b) => byDateDesc(eventDisplayTime(a), eventDisplayTime(b))),
@@ -1048,6 +1088,7 @@ export default function App() {
 
   const feedTotalPages = useMemo(() => Math.max(1, Math.ceil(sortedFilteredEvents.length / LIST_PAGE_SIZE)), [sortedFilteredEvents.length]);
   const alertsTotalPages = useMemo(() => Math.max(1, Math.ceil(sortedAlerts.length / LIST_PAGE_SIZE)), [sortedAlerts.length]);
+  const sourceTotalPages = useMemo(() => Math.max(1, Math.ceil(sources.length / SOURCE_DRAWER_PAGE_SIZE)), [sources.length]);
 
   const visibleFeedEvents = useMemo(() => {
     const start = (feedPage - 1) * LIST_PAGE_SIZE;
@@ -1058,9 +1099,14 @@ export default function App() {
     const start = (alertsPage - 1) * LIST_PAGE_SIZE;
     return sortedAlerts.slice(start, start + LIST_PAGE_SIZE);
   }, [alertsPage, sortedAlerts]);
+  const visibleSources = useMemo(() => {
+    const start = (sourcePage - 1) * SOURCE_DRAWER_PAGE_SIZE;
+    return sources.slice(start, start + SOURCE_DRAWER_PAGE_SIZE);
+  }, [sourcePage, sources]);
 
   const feedPageNumbers = useMemo(() => paginationWindow(feedPage, feedTotalPages), [feedPage, feedTotalPages]);
   const alertsPageNumbers = useMemo(() => paginationWindow(alertsPage, alertsTotalPages), [alertsPage, alertsTotalPages]);
+  const sourcePageNumbers = useMemo(() => paginationWindow(sourcePage, sourceTotalPages), [sourcePage, sourceTotalPages]);
   const feedRange = useMemo(() => {
     if (sortedFilteredEvents.length === 0) return { from: 0, to: 0 };
     const from = (feedPage - 1) * LIST_PAGE_SIZE + 1;
@@ -1073,6 +1119,12 @@ export default function App() {
     const to = Math.min(alertsPage * LIST_PAGE_SIZE, sortedAlerts.length);
     return { from, to };
   }, [alertsPage, sortedAlerts.length]);
+  const sourceRange = useMemo(() => {
+    if (sources.length === 0) return { from: 0, to: 0 };
+    const from = (sourcePage - 1) * SOURCE_DRAWER_PAGE_SIZE + 1;
+    const to = Math.min(sourcePage * SOURCE_DRAWER_PAGE_SIZE, sources.length);
+    return { from, to };
+  }, [sourcePage, sources.length]);
 
   const eventsById = useMemo(() => {
     const map = new Map();
@@ -1121,6 +1173,14 @@ export default function App() {
   useEffect(() => {
     setAlertsPage((prev) => Math.min(Math.max(1, prev), alertsTotalPages));
   }, [alertsTotalPages]);
+
+  useEffect(() => {
+    setSourcePage((prev) => Math.min(Math.max(1, prev), sourceTotalPages));
+  }, [sourceTotalPages]);
+
+  useEffect(() => {
+    if (sourceDrawerOpen) setSourcePage(1);
+  }, [sourceDrawerOpen]);
 
   useEffect(() => {
     setSelectedAlertIds((prev) => prev.filter((id) => alerts.some((row) => row.id === id)));
@@ -2163,6 +2223,19 @@ export default function App() {
             <input type="checkbox" checked={includePeople} onChange={(event) => setIncludePeople(event.target.checked)} />
             تضمين السوشال
           </label>
+          <label>
+            المدى الزمني
+            <select value={newsWindowHours} onChange={(event) => setNewsWindowHours(event.target.value)}>
+              <option value="1">آخر ساعة</option>
+              <option value="3">آخر 3 ساعات</option>
+              <option value="6">آخر 6 ساعات</option>
+              <option value="12">آخر 12 ساعة</option>
+              <option value="24">آخر 24 ساعة</option>
+              <option value="48">آخر 48 ساعة</option>
+              <option value="72">آخر 72 ساعة</option>
+              <option value="0">الكل</option>
+            </select>
+          </label>
         </div>
         <div className="quick-topics">
           <button className="btn btn-ghost" type="button" onClick={() => setSourceDrawerOpen((prev) => !prev)}>
@@ -2242,16 +2315,46 @@ export default function App() {
               </button>
             ))}
           </div>
+          <div className="list-pagination top source-pagination">
+            <span className="pagination-meta">
+              عرض {sourceRange.from}-{sourceRange.to} من {sources.length}
+            </span>
+            <div className="page-numbers">
+              <button className="btn btn-small" type="button" onClick={() => setSourcePage((p) => Math.max(1, p - 1))} disabled={sourcePage <= 1}>
+                السابق
+              </button>
+              {sourcePageNumbers.map((page) => (
+                <button
+                  key={`source-page-${page}`}
+                  className={`btn btn-small page-btn ${sourcePage === page ? "active" : ""}`}
+                  type="button"
+                  onClick={() => setSourcePage(page)}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                className="btn btn-small"
+                type="button"
+                onClick={() => setSourcePage((p) => Math.min(sourceTotalPages, p + 1))}
+                disabled={sourcePage >= sourceTotalPages}
+              >
+                التالي
+              </button>
+            </div>
+          </div>
           <div className="source-list drawer-list">
-            {sources.map((source) => (
+            {visibleSources.map((source) => (
               <article className="source-item" key={source.id}>
-                <div>
+                <div className="source-item-body">
                   <h3>{source.name}</h3>
-                  <p>
-                    {sourceTypeLabel(source.source_type)} | {source.endpoint}
+                  <p className="source-item-meta">
+                    <span>{sourceTypeLabel(source.source_type)}</span>
+                    <span>Polling: {source.poll_interval_seconds}s</span>
+                    <span>parser: {source.parser_hint || "auto"}</span>
                   </p>
-                  <small>
-                    Polling: {source.poll_interval_seconds}s | parser: {source.parser_hint || "auto"}
+                  <small className="source-endpoint" dir="ltr">
+                    {source.endpoint}
                   </small>
                 </div>
                 <button className="btn btn-small" type="button" onClick={() => toggleSource(source.id, source.enabled)}>
@@ -2259,6 +2362,23 @@ export default function App() {
                 </button>
               </article>
             ))}
+          </div>
+          <div className="list-pagination source-pagination">
+            <span className="pagination-meta">
+              صفحة {sourcePage} من {sourceTotalPages}
+            </span>
+            <div className="page-picker">
+              <label>
+                صفحة
+                <select value={sourcePage} onChange={(event) => setSourcePage(Number(event.target.value))}>
+                  {Array.from({ length: sourceTotalPages }, (_, index) => (
+                    <option key={`source-page-picker-${index + 1}`} value={index + 1}>
+                      {index + 1}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
           <form className="source-form" onSubmit={addSource}>
             <h3>إضافة مصدر جديد</h3>

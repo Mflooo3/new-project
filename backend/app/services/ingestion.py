@@ -26,6 +26,7 @@ from app.services.fetchers.news_apis import (
 )
 from app.services.fetchers.news_rss import fetch_news_rss
 from app.services.fetchers.social import fetch_social_feed
+from app.services.fetchers.x_recent import fetch_x_recent
 from app.services.realtime import event_bus
 
 
@@ -191,6 +192,9 @@ def _fetchers_by_hint() -> dict[str, Fetcher]:
         "social_reddit_json": fetch_social_feed,
         "social_json": fetch_social_feed,
         "social_rss": fetch_social_feed,
+        "x_recent": fetch_x_recent,
+        "x_api_v2": fetch_x_recent,
+        "twitter_recent": fetch_x_recent,
     }
 
 
@@ -220,6 +224,8 @@ class IngestionService:
         now = datetime.now(timezone.utc)
 
         for source in sources:
+            source_parser_hint = (source.parser_hint or "").strip().lower()
+            is_x_recent_source = source_parser_hint in {"x_recent", "x_api_v2", "twitter_recent"}
             if not force and source.last_polled_at:
                 last_polled_at = _as_utc(source.last_polled_at)
                 elapsed = (now - last_polled_at).total_seconds()
@@ -241,10 +247,15 @@ class IngestionService:
             for raw in raw_events:
                 if not raw.title:
                     continue
+                if source.source_type == "news" and raw.event_time is not None:
+                    raw_event_time = _as_utc(raw.event_time)
+                    max_age_hours = max(1, int(settings.news_max_age_hours))
+                    if raw_event_time < now - timedelta(hours=max_age_hours):
+                        continue
                 if source.source_type == "news" and "uae feed" in (source.name or "").lower():
                     if not _contains_arabic(raw.title, raw.summary):
                         continue
-                if not _is_relevant(raw, source.source_type):
+                if not is_x_recent_source and not _is_relevant(raw, source.source_type):
                     continue
                 if self._exists(source, raw):
                     continue

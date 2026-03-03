@@ -182,7 +182,7 @@ h3 {
 
 .filter-grid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr 1.2fr 1fr 1fr;
+  grid-template-columns: 1.4fr 1fr 1fr 1.2fr 1fr 0.9fr 0.9fr;
   gap: 10px;
 }
 
@@ -272,6 +272,15 @@ h3 {
 .source-drawer {
   margin-top: 12px;
   animation: slideDown 0.24s ease-out;
+}
+
+.source-drawer .quick-topics {
+  max-height: 210px;
+  overflow: auto;
+  padding: 8px 6px 6px;
+  border: 1px solid rgba(132, 201, 226, 0.2);
+  border-radius: 10px;
+  background: rgba(6, 26, 39, 0.45);
 }
 
 @keyframes slideDown {
@@ -419,7 +428,8 @@ h3 {
 }
 
 .drawer-list {
-  max-height: 300px;
+  max-height: 430px;
+  padding: 6px 4px 6px 2px;
 }
 
 .event-item,
@@ -573,13 +583,64 @@ h3 {
 }
 
 .source-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
 }
 
 .source-item small {
   color: var(--muted);
+}
+
+.source-item > div {
+  min-width: 0;
+}
+
+.source-item h3,
+.source-item p,
+.source-item small {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.source-item-body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.source-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+}
+
+.source-item-meta span {
+  border: 1px solid rgba(132, 201, 226, 0.32);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: rgba(132, 201, 226, 0.08);
+  font-size: 0.82rem;
+}
+
+.source-endpoint {
+  display: block;
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: plaintext;
+  color: #d8ecf6;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.source-item .btn {
+  min-width: 84px;
+  white-space: nowrap;
 }
 
 .source-form,
