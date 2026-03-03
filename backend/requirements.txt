@@ -1,0 +1,15 @@
+fastapi==0.115.11
+uvicorn[standard]==0.34.0
+sqlmodel==0.0.24
+httpx==0.28.1
+feedparser==6.0.11
+python-dateutil==2.9.0.post0
+apscheduler==3.11.0
+openai==1.65.5
+pydantic-settings==2.8.1
+redis==5.2.1
+rq==2.1.0
+psycopg[binary]==3.2.6
+reportlab==4.2.5
+arabic-reshaper==3.0.0
+python-bidi==0.4.2
