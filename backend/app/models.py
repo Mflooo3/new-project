@@ -65,3 +65,28 @@ class AIInsight(SQLModel, table=True):
     content: str
     related_event_ids: str = ""
     created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class AIPredictionTicket(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str = Field(index=True)
+    focus_query: str = Field(index=True)
+    request_text: str
+    prediction_text: str
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    horizon_hours: int = Field(default=24, ge=1, le=720)
+    status: str = Field(default="open", index=True)
+    outcome: str = Field(default="unknown", index=True)
+    scope: str = Field(default="general")
+    related_event_ids: str = ""
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    updated_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class AIPredictionUpdate(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ticket_id: int = Field(foreign_key="aipredictionticket.id", index=True)
+    kind: str = Field(default="update", index=True)
+    content: str
+    outcome: Optional[str] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utcnow, index=True)

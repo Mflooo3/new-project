@@ -12,6 +12,15 @@ const sourceTypeOptions = [
   { value: "custom", label: "مخصص" }
 ];
 
+const severityOptions = [
+  { value: "all", label: "كل الشدات" },
+  { value: "5", label: "S5 - حرج جدا" },
+  { value: "4", label: "S4 - عالي (عاجل)" },
+  { value: "3", label: "S3 - متوسط" },
+  { value: "2", label: "S2 - منخفض" },
+  { value: "1", label: "S1 - معلومة عامة" }
+];
+
 const initialSourceForm = {
   name: "",
   source_type: "news",
@@ -61,6 +70,34 @@ const presetSources = [
     poll_interval_seconds: 180
   },
   {
+    name: "BBC Arabic RSS",
+    source_type: "news",
+    endpoint: "https://www.bbc.com/arabic/index.xml",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "France 24 Arabic RSS",
+    source_type: "news",
+    endpoint: "https://www.france24.com/ar/rss",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "RT Arabic RSS",
+    source_type: "news",
+    endpoint: "https://arabic.rt.com/rss/",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "Independent Arabia RSS",
+    source_type: "news",
+    endpoint: "https://www.independentarabia.com/rss.xml",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
     name: "NewsData.io Sky News Arabia",
     source_type: "news",
     endpoint: "https://newsdata.io/api/1/latest?domain=skynewsarabia.com&language=ar",
@@ -89,6 +126,86 @@ const presetSources = [
     poll_interval_seconds: 240
   },
   {
+    name: "WAM UAE Feed",
+    source_type: "news",
+    endpoint:
+      "https://news.google.com/rss/search?q=site:wam.ae%20(uae%20OR%20dubai%20OR%20abu%20dhabi)&hl=ar&gl=AE&ceid=AE:ar",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "24.ae UAE Feed",
+    source_type: "news",
+    endpoint:
+      "https://news.google.com/rss/search?q=site:24.ae%20(uae%20OR%20dubai%20OR%20abu%20dhabi)&hl=ar&gl=AE&ceid=AE:ar",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "Sharjah24 UAE Feed",
+    source_type: "news",
+    endpoint:
+      "https://news.google.com/rss/search?q=site:sharjah24.ae%20(uae%20OR%20dubai%20OR%20abu%20dhabi)&hl=ar&gl=AE&ceid=AE:ar",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "Emarat Al Youm UAE Feed",
+    source_type: "news",
+    endpoint:
+      "https://news.google.com/rss/search?q=site:emaratalyoum.com%20(uae%20OR%20dubai%20OR%20abu%20dhabi)&hl=ar&gl=AE&ceid=AE:ar",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "Al Bayan UAE Feed",
+    source_type: "news",
+    endpoint:
+      "https://news.google.com/rss/search?q=site:albayan.ae%20(uae%20OR%20dubai%20OR%20abu%20dhabi)&hl=ar&gl=AE&ceid=AE:ar",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "Al Khaleej UAE Feed",
+    source_type: "news",
+    endpoint:
+      "https://news.google.com/rss/search?q=site:alkhaleej.ae%20(uae%20OR%20dubai%20OR%20abu%20dhabi)&hl=ar&gl=AE&ceid=AE:ar",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "Al Ittihad UAE Feed",
+    source_type: "news",
+    endpoint:
+      "https://news.google.com/rss/search?q=site:alittihad.ae%20(uae%20OR%20dubai%20OR%20abu%20dhabi)&hl=ar&gl=AE&ceid=AE:ar",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "Al Roeya UAE Feed",
+    source_type: "news",
+    endpoint:
+      "https://news.google.com/rss/search?q=site:alroeya.com%20(uae%20OR%20dubai%20OR%20abu%20dhabi)&hl=ar&gl=AE&ceid=AE:ar",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "Marine Gulf Security Feed",
+    source_type: "marine",
+    endpoint:
+      "https://news.google.com/rss/search?q=(shipping%20OR%20tanker%20OR%20vessel%20OR%20maritime%20OR%20%E2%80%9C%D9%85%D9%84%D8%A7%D8%AD%D8%A9%E2%80%9D)%20(gulf%20OR%20hormuz%20OR%20uae%20OR%20%D8%A7%D9%84%D8%AE%D9%84%D9%8A%D8%AC%20OR%20%D9%87%D8%B1%D9%85%D8%B2)&hl=ar&gl=AE&ceid=AE:ar",
+    parser_hint: "rss",
+    poll_interval_seconds: 120
+  },
+  {
+    name: "Cyber Gulf Alerts Feed",
+    source_type: "cyber",
+    endpoint:
+      "https://news.google.com/rss/search?q=(cyber%20attack%20OR%20ransomware%20OR%20malware%20OR%20%E2%80%9C%D9%87%D8%AC%D9%88%D9%85%20%D8%B3%D9%8A%D8%A8%D8%B1%D8%A7%D9%86%D9%8A%E2%80%9D%20OR%20%D8%A7%D8%AE%D8%AA%D8%B1%D8%A7%D9%82)%20(gulf%20OR%20uae%20OR%20%D8%A7%D9%84%D8%AE%D9%84%D9%8A%D8%AC%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA)&hl=ar&gl=AE&ceid=AE:ar",
+    parser_hint: "rss",
+    poll_interval_seconds: 120
+  },
+  {
     name: "Cyber Advisories (CISA)",
     source_type: "cyber",
     endpoint: "https://www.cisa.gov/news-events/cybersecurity-advisories.xml",
@@ -111,9 +228,22 @@ const trustedDomains = [
   "google.com",
   "alarabiya.net",
   "gulfnews.com",
+  "wam.ae",
+  "24.ae",
+  "sharjah24.ae",
+  "alroeya.com",
+  "emaratalyoum.com",
+  "albayan.ae",
+  "alkhaleej.ae",
+  "alittihad.ae",
   "news.sky.com",
   "skynews.com",
   "skynewsarabia.com",
+  "bbc.com",
+  "france24.com",
+  "arabic.rt.com",
+  "rt.com",
+  "independentarabia.com",
   "reliefweb.int",
   "gdacs.org",
   "cisa.gov",
@@ -127,14 +257,74 @@ const trustedNameMarkers = [
   "cnn",
   "alarabiya",
   "gulf news",
+  "wam",
+  "24.ae",
+  "sharjah24",
+  "al roeya",
+  "emarat al youm",
+  "albayan",
+  "al khaleej",
+  "al ittihad",
   "sky news",
   "skynews",
+  "bbc arabic",
+  "france 24",
+  "rt arabic",
+  "independent arabia",
   "reliefweb",
   "gdacs",
   "cisa",
   "opensky",
   "marinetraffic",
   "flightradar"
+];
+
+const arabicBreakingSources = new Set([
+  "RT Arabic Feed",
+  "BBC Arabic Feed",
+  "France 24 Arabic Feed",
+  "Independent Arabia Feed",
+  "Sky News Arabia RSS",
+  "Sky News Gulf Publisher Feed",
+  "Emarat Al Youm UAE Feed",
+  "Al Bayan UAE Feed",
+  "Al Khaleej UAE Feed",
+  "Al Ittihad UAE Feed"
+]);
+
+const englishAllowedBreakingSources = new Set([
+  "Sky News Arabia RSS",
+  "Sky News Gulf Publisher Feed"
+]);
+
+const arabicPreferredNewsNameMarkers = [
+  "arabic",
+  "sky news arabia",
+  "al arabiya",
+  "alarabiya",
+  "independent arabia",
+  "france 24 arabic",
+  "bbc arabic",
+  "rt arabic",
+  "emarat al youm",
+  "al bayan",
+  "al khaleej",
+  "al ittihad",
+  "wam uae",
+];
+
+const arabicPreferredNewsDomains = [
+  "skynewsarabia.com",
+  "alarabiya.net",
+  "bbc.com",
+  "france24.com",
+  "arabic.rt.com",
+  "independentarabia.com",
+  "emaratalyoum.com",
+  "albayan.ae",
+  "alkhaleej.ae",
+  "alittihad.ae",
+  "wam.ae",
 ];
 
 const LIST_PAGE_SIZE = 3;
@@ -177,8 +367,8 @@ const skyVideoSources = [
     label: "Sky News Arabia",
     embedUrl:
       import.meta.env.VITE_SKY_ARABIA_EMBED_URL ||
-      "https://www.youtube.com/embed/live_stream?channel=UCkmm6DCJH-2ornZK-ozCs8w&autoplay=1",
-    watchUrl: "https://www.youtube.com/channel/UCkmm6DCJH-2ornZK-ozCs8w/live"
+      "https://www.youtube.com/embed/U--OjmpjF5o?autoplay=1",
+    watchUrl: "https://www.youtube.com/live/U--OjmpjF5o"
   }
 ];
 
@@ -203,6 +393,19 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? "غير متاح" : date.toLocaleString("ar-EG", { hour12: false });
 }
 
+function eventDisplayTime(row) {
+  return row?.created_at || row?.event_time || null;
+}
+
+function severityMeaning(level) {
+  const value = Number(level);
+  if (value >= 5) return "حرج جدا";
+  if (value === 4) return "عالي (عاجل)";
+  if (value === 3) return "متوسط";
+  if (value === 2) return "منخفض";
+  return "معلومة عامة";
+}
+
 function formatRelativeTime(value) {
   if (!value) return "الآن";
   const date = new Date(value);
@@ -215,6 +418,148 @@ function formatRelativeTime(value) {
   if (hours < 24) return `قبل ${hours} ساعة`;
   const days = Math.floor(hours / 24);
   return `قبل ${days} يوم`;
+}
+
+function minutesSince(value) {
+  if (!value) return 0;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 0;
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+}
+
+function freshnessLabel(value) {
+  const mins = minutesSince(value);
+  if (mins <= 3) return "Live";
+  if (mins <= 10) return "10m";
+  if (mins <= 60) return "1h";
+  if (mins <= 180) return "3h";
+  return "3h+";
+}
+
+function predictionDueAt(ticket) {
+  if (!ticket?.created_at) return null;
+  const createdMs = new Date(ticket.created_at).getTime();
+  if (!Number.isFinite(createdMs)) return null;
+  const hours = Number(ticket.horizon_hours || 0);
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  return new Date(createdMs + hours * 60 * 60 * 1000);
+}
+
+function hoursUntilPredictionDue(ticket) {
+  const dueAt = predictionDueAt(ticket);
+  if (!dueAt) return null;
+  const diffMs = dueAt.getTime() - Date.now();
+  return diffMs / (60 * 60 * 1000);
+}
+
+function buildOperationalAnalysisTemplate({ focus, country, topic, userRequest }) {
+  const safeFocus = String(focus || "").trim() || "تصعيد إقليمي";
+  const safeCountry = String(country || "").trim() || "الدولة المحددة";
+  const safeTopic = String(topic || "").trim() || safeFocus;
+  const safeRequest = String(userRequest || "").trim() || "تحليل تشغيلي متكامل";
+  return [
+    `التركيز: ${safeFocus}`,
+    `الدولة المستهدفة: ${safeCountry}`,
+    `الموضوع: ${safeTopic}`,
+    `طلب المستخدم: ${safeRequest}`,
+    "أنت محلل عمليات. قدّم تحليلًا تنفيذيًا منظمًا بالعربية يشمل النقاط التالية حصراً.",
+    "استخدم العناوين التالية حرفياً وبالترتيب حتى يمكن عرضها في صناديق تشغيلية:",
+    "[CURRENT_BASELINE]",
+    "[LOGISTICS]",
+    "[DAMAGES_LOSSES]",
+    "[ECONOMIC_COST]",
+    "[MITIGATION]",
+    "[SHORT_TERM_PREDICTION]",
+    "وتحت كل عنوان اكتب نقاطاً موجزة عملية.",
+    "مهم: اكتب المخرجات بالعربية فقط بدون كلمات أو عناوين إنجليزية.",
+    "المحتوى المطلوب تحت العناوين:",
+    "1) ملخص الوضع الحالي مقابل الوضع المرجعي عند بداية الموضوع.",
+    "2) معلومات لوجستية فعلية للدولة المستهدفة (المطارات/الموانئ/الطرق/سلاسل الإمداد/الطاقة) وتأثير الحدث عليها.",
+    "3) الأضرار والخسائر: بشرية/مادية/تشغيلية مع تمييز المؤكد من غير المؤكد.",
+    "4) تقدير التكلفة الاقتصادية المباشرة وغير المباشرة إن توفرت المؤشرات.",
+    "5) إجراءات التخفيف والاستجابة التي تم اتخاذها فعلياً منذ بداية الحدث.",
+    "6) فجوات الاستجابة الحالية وما الذي يجب متابعته خلال 6/24/72 ساعة.",
+    "7) توقع تشغيلي قصير المدى مع سيناريو رئيسي وبديل ونسبة ثقة.",
+    "اعرض الناتج في عناوين واضحة ونقاط عملية قابلة للتنفيذ."
+  ].join("\n");
+}
+
+function parseOperationalSections(text) {
+  const raw = String(text || "");
+  const keys = [
+    "CURRENT_BASELINE",
+    "LOGISTICS",
+    "DAMAGES_LOSSES",
+    "ECONOMIC_COST",
+    "MITIGATION",
+    "SHORT_TERM_PREDICTION",
+  ];
+  const out = {
+    CURRENT_BASELINE: "",
+    LOGISTICS: "",
+    DAMAGES_LOSSES: "",
+    ECONOMIC_COST: "",
+    MITIGATION: "",
+    SHORT_TERM_PREDICTION: "",
+  };
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i];
+    const next = keys[i + 1];
+    const startTag = new RegExp(`\\[${key}\\]`, "i");
+    const startMatch = raw.match(startTag);
+    if (!startMatch || startMatch.index == null) continue;
+    const start = startMatch.index + startMatch[0].length;
+    let end = raw.length;
+    if (next) {
+      const nextTag = new RegExp(`\\[${next}\\]`, "i");
+      const nextMatch = raw.slice(start).match(nextTag);
+      if (nextMatch && nextMatch.index != null) end = start + nextMatch.index;
+    }
+    out[key] = raw.slice(start, end).trim();
+  }
+  return out;
+}
+
+const operationalSectionDefs = [
+  { key: "CURRENT_BASELINE", title: "الوضع الحالي مقابل المرجعي" },
+  { key: "LOGISTICS", title: "اللوجستيات الفعلية" },
+  { key: "DAMAGES_LOSSES", title: "الأضرار والخسائر" },
+  { key: "ECONOMIC_COST", title: "التكلفة الاقتصادية" },
+  { key: "MITIGATION", title: "إجراءات التخفيف" },
+  { key: "SHORT_TERM_PREDICTION", title: "توقع قصير المدى" },
+];
+
+function toBulletLines(value) {
+  return String(value || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^[-*]\s*/, "").trim());
+}
+
+function cleanOperationalTaggedText(value) {
+  let text = String(value || "");
+  for (const section of operationalSectionDefs) {
+    const tag = new RegExp(`\\[${section.key}\\]`, "gi");
+    text = text.replace(tag, `\n${section.title}\n`);
+  }
+  return text.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function makePredictionWorkspace(id, index) {
+  return {
+    id,
+    label: `مساحة ${index}`,
+    country: "الإمارات",
+    topic: "التصعيد في الخليج",
+    predictionTitle: "توقع تشغيلي",
+    predictionFocus: "الحرب في الخليج مع تركيز الإمارات",
+    predictionRequest: "حلل الوضع وقدّم توقعاً تشغيلياً للـ24 ساعة القادمة.",
+    predictionHorizon: 24,
+    predictionOpenOnly: true,
+    predictionDueWithinHours: 0,
+    selectedPredictionId: null,
+  };
 }
 
 function sourceTypeLabel(type) {
@@ -246,11 +591,53 @@ function topicsMatch(text, query) {
   if (q === "war_focus" || q === "حرب" || q === "تركيز الحرب") {
     return ["war", "conflict", "missile", "strike", "attack", "حرب", "هجوم", "صاروخ"].some((k) => text.includes(k));
   }
+  if (q === "cyber" || q === "سيبراني" || q === "تركيز سيبراني") {
+    return ["cyber", "ransomware", "malware", "breach", "hacked", "اختراق", "سيبراني", "هجوم سيبراني"].some((k) => text.includes(k));
+  }
+  if (q === "marine" || q === "ملاحي" || q === "تركيز ملاحي") {
+    return ["marine", "maritime", "shipping", "tanker", "vessel", "port", "ملاحة", "ناقلة", "سفينة", "ميناء"].some((k) =>
+      text.includes(k)
+    );
+  }
+  if (q === "flight" || q === "طيران" || q === "تركيز طيران") {
+    return ["flight", "aircraft", "airport", "aviation", "طيران", "مطار", "رحلة"].some((k) => text.includes(k));
+  }
   return text.includes(q);
 }
 
 function eventText(row) {
   return [row.title, row.summary, row.details, row.ai_assessment, row.tags, row.source_name].filter(Boolean).join(" ").toLowerCase();
+}
+
+function eventLane(row) {
+  const text = eventText(row);
+  if (
+    ["cyber", "ransomware", "malware", "breach", "اختراق", "سيبراني", "هجوم سيبراني"].some((keyword) => text.includes(keyword))
+  ) {
+    return "cyber";
+  }
+  if (
+    ["marine", "maritime", "shipping", "tanker", "vessel", "port", "ملاحة", "ناقلة", "سفينة", "ميناء"].some((keyword) =>
+      text.includes(keyword)
+    )
+  ) {
+    return "marine";
+  }
+  if (["flight", "aircraft", "airport", "aviation", "طيران", "مطار", "رحلة"].some((keyword) => text.includes(keyword))) {
+    return "air";
+  }
+  return "geo";
+}
+
+function normalizeStoryTitle(value) {
+  const text = cleanText(value || "").toLowerCase();
+  if (!text) return "";
+  const trimmedSuffix = text.replace(/\s[-|–]\s[^-|–]{1,40}$/u, "");
+  return trimmedSuffix.replace(/\s+/g, " ").trim();
+}
+
+function noticeId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function mapEmbedUrl(lat, lon) {
@@ -274,6 +661,21 @@ function parseDetailsTokens(details) {
     });
 }
 
+function parsePossiblyDate(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+function isStalePublishedForRow(row, publishedRaw) {
+  const publishedDate = parsePossiblyDate(publishedRaw);
+  const fetchedDate = parsePossiblyDate(row?.created_at);
+  if (!publishedDate || !fetchedDate) return false;
+  const diffMs = fetchedDate.getTime() - publishedDate.getTime();
+  return diffMs > 30 * 24 * 60 * 60 * 1000;
+}
+
 function summarizeSourceDetails(row) {
   if (!row) return "";
   const detailsMap = new Map(parseDetailsTokens(row.details));
@@ -294,6 +696,17 @@ function summarizeSourceDetails(row) {
     if (detailsMap.get("mmsi")) parts.push(`MMSI: ${detailsMap.get("mmsi")}`);
     if (detailsMap.get("speed_kn")) parts.push(`السرعة: ${detailsMap.get("speed_kn")} عقدة`);
     return parts.join(" | ") || cleanText(row.summary || "");
+  }
+
+  if (row.source_type === "news") {
+    const tokens = parseDetailsTokens(row.details).filter(([key, value]) => {
+      if (key !== "published") return true;
+      return !isStalePublishedForRow(row, value);
+    });
+    if (tokens.length > 0) {
+      return cleanText(tokens.map(([k, v]) => `${k}=${v}`).join(" | "));
+    }
+    return cleanText(row.summary || "");
   }
 
   return cleanText(row.details || row.summary || "");
@@ -322,7 +735,10 @@ function parseFacts(row) {
   };
   const selectedKeys = importantByType[row.source_type] || [];
   for (const key of selectedKeys) {
-    if (detailsMap.has(key)) facts.push([key, detailsMap.get(key)]);
+    if (!detailsMap.has(key)) continue;
+    const value = detailsMap.get(key);
+    if (key === "published" && isStalePublishedForRow(row, value)) continue;
+    facts.push([key, value]);
   }
 
   return facts.filter(([, value]) => value).slice(0, 12);
@@ -378,6 +794,21 @@ function likelyEnglish(value) {
   return /[A-Za-z]/.test(text) && !/[\u0600-\u06FF]/.test(text);
 }
 
+function hasArabicScript(value) {
+  const text = cleanText(value);
+  if (!text) return false;
+  return /[\u0600-\u06FF]/.test(text);
+}
+
+function isArabicPreferredNewsRow(row) {
+  if (!row || row.source_type !== "news") return false;
+  const name = String(row.source_name || "").toLowerCase();
+  const domain = eventDomain(row.url);
+  if (arabicPreferredNewsNameMarkers.some((marker) => name.includes(marker))) return true;
+  if (arabicPreferredNewsDomains.some((trusted) => domain === trusted || domain.endsWith(`.${trusted}`))) return true;
+  return hasArabicScript(row.title) || hasArabicScript(row.summary) || hasArabicScript(row.details);
+}
+
 function buildTrend(events) {
   const buckets = Array.from({ length: 8 }, () => 0);
   const now = Date.now();
@@ -428,9 +859,11 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastSync, setLastSync] = useState(null);
+  const [ingestionRunning, setIngestionRunning] = useState(false);
 
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
+  const [severityFilter, setSeverityFilter] = useState("all");
   const [selectedSourceNames, setSelectedSourceNames] = useState([]);
   const [trustedOnly, setTrustedOnly] = useState(true);
   const [includePeople, setIncludePeople] = useState(true);
@@ -448,6 +881,20 @@ export default function App() {
   const [selectedVideoSourceId, setSelectedVideoSourceId] = useState(skyVideoSources[0]?.id || "");
   const [versionTab, setVersionTab] = useState("v1");
   const [aiTab, setAiTab] = useState("chat");
+  const [v2Lane, setV2Lane] = useState("all");
+  const [v2UnreadOnly, setV2UnreadOnly] = useState(false);
+  const [v2TrustedOnly, setV2TrustedOnly] = useState(true);
+  const [v2FocusedEventId, setV2FocusedEventId] = useState(null);
+  const [v2SelectedEventIds, setV2SelectedEventIds] = useState([]);
+  const [predictionTickets, setPredictionTickets] = useState([]);
+  const [predictionUpdates, setPredictionUpdates] = useState([]);
+  const [predictionWorkspaces, setPredictionWorkspaces] = useState(() => [makePredictionWorkspace("ws-1", 1)]);
+  const [activePredictionWorkspaceId, setActivePredictionWorkspaceId] = useState("ws-1");
+  const [predictionLeaderboard, setPredictionLeaderboard] = useState([]);
+  const [creatingPrediction, setCreatingPrediction] = useState(false);
+  const [updatingPrediction, setUpdatingPrediction] = useState(false);
+  const [predictionNote, setPredictionNote] = useState("");
+  const [liveNotices, setLiveNotices] = useState([]);
 
   const [chatInput, setChatInput] = useState("");
   const [analysisTitle, setAnalysisTitle] = useState("تحليل تشغيلي");
@@ -461,17 +908,21 @@ export default function App() {
   const [popupEventId, setPopupEventId] = useState(null);
   const [contentModal, setContentModal] = useState(null);
   const [arabicMap, setArabicMap] = useState({});
+  const [seenEventIds, setSeenEventIds] = useState([]);
 
   const loadAll = useCallback(async () => {
     try {
-      const [eventsResp, alertsResp, sourcesResp, messagesResp, insightsResp, reportsResp, privacyResp] = await Promise.all([
+      const [eventsResp, alertsResp, sourcesResp, messagesResp, insightsResp, reportsResp, privacyResp, predictionsResp, leaderboardResp] =
+        await Promise.all([
         apiGet("/events?limit=500"),
         apiGet("/alerts?limit=200"),
         apiGet("/sources"),
         apiGet("/ai/messages?limit=120"),
         apiGet("/ai/insights?limit=80"),
         apiGet("/ai/reports?limit=40"),
-        apiGet("/ai/privacy")
+        apiGet("/ai/privacy"),
+        apiGet("/ai/predictions?limit=120").catch(() => []),
+        apiGet("/ai/predictions/leaderboard").catch(() => [])
       ]);
       let aiStatusResp = {
         configured: false,
@@ -499,6 +950,8 @@ export default function App() {
           .sort(byCreatedAtDesc)
       );
       setPrivacy(privacyResp);
+      setPredictionTickets(Array.isArray(predictionsResp) ? predictionsResp : []);
+      setPredictionLeaderboard(Array.isArray(leaderboardResp) ? leaderboardResp : []);
       setAiStatus(aiStatusResp);
       setLastSync(new Date().toISOString());
       setError("");
@@ -517,7 +970,22 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = streamEvents((payload) => {
-      if (payload?.type === "event" || payload?.type === "alert") loadAll();
+      if (payload?.type === "event" || payload?.type === "alert" || payload?.type === "prediction") loadAll();
+      if (payload?.type === "prediction") {
+        const message =
+          payload?.action === "created"
+            ? `تذكرة توقع جديدة: ${payload?.title || ""}`
+            : payload?.action === "updated"
+              ? `تم تحديث تذكرة التوقع: ${payload?.title || ""}`
+              : payload?.action === "outcome"
+                ? `تم تسجيل نتيجة التوقع: ${payload?.outcome || ""}`
+                : "تحديث تلقائي على تذكرة توقع";
+        const id = noticeId();
+        setLiveNotices((prev) => [{ id, message }, ...prev].slice(0, 6));
+        setTimeout(() => {
+          setLiveNotices((prev) => prev.filter((row) => row.id !== id));
+        }, 6000);
+      }
     });
     return unsubscribe;
   }, [loadAll]);
@@ -536,12 +1004,13 @@ export default function App() {
   const filteredEvents = useMemo(() => {
     let rows = [...sourceScopedEvents];
     if (sourceFilter !== "all") rows = rows.filter((r) => r.source_type === sourceFilter);
+    if (severityFilter !== "all") rows = rows.filter((r) => r.severity === Number(severityFilter));
     if (!includePeople) rows = rows.filter((r) => r.source_type !== "social");
     return rows;
-  }, [sourceScopedEvents, sourceFilter, includePeople]);
+  }, [sourceScopedEvents, sourceFilter, severityFilter, includePeople]);
 
   const sortedFilteredEvents = useMemo(
-    () => [...filteredEvents].sort((a, b) => byDateDesc(a.event_time, b.event_time)),
+    () => [...filteredEvents].sort((a, b) => byDateDesc(eventDisplayTime(a), eventDisplayTime(b))),
     [filteredEvents]
   );
 
@@ -616,7 +1085,7 @@ export default function App() {
 
   useEffect(() => {
     setFeedPage(1);
-  }, [query, sourceFilter, selectedSourceNames, trustedOnly, includePeople]);
+  }, [query, sourceFilter, severityFilter, selectedSourceNames, trustedOnly, includePeople]);
 
   useEffect(() => {
     setFeedPage((prev) => Math.min(Math.max(1, prev), feedTotalPages));
@@ -629,6 +1098,121 @@ export default function App() {
   useEffect(() => {
     setSelectedAlertIds((prev) => prev.filter((id) => alerts.some((row) => row.id === id)));
   }, [alerts]);
+
+  useEffect(() => {
+    const validIds = new Set(events.map((row) => row.id));
+    setSeenEventIds((prev) => prev.filter((id) => validIds.has(id)));
+  }, [events]);
+
+  const activePredictionWorkspace = useMemo(
+    () => predictionWorkspaces.find((row) => row.id === activePredictionWorkspaceId) || predictionWorkspaces[0] || null,
+    [predictionWorkspaces, activePredictionWorkspaceId]
+  );
+
+  const selectedPredictionId = activePredictionWorkspace?.selectedPredictionId || null;
+
+  function updateActivePredictionWorkspace(patch) {
+    if (!activePredictionWorkspaceId) return;
+    setPredictionWorkspaces((prev) =>
+      prev.map((row) => {
+        if (row.id !== activePredictionWorkspaceId) return row;
+        const nextPatch = typeof patch === "function" ? patch(row) : patch;
+        return { ...row, ...nextPatch };
+      })
+    );
+  }
+
+  function addPredictionWorkspace() {
+    const id = `ws-${Date.now()}`;
+    setPredictionWorkspaces((prev) => [...prev, makePredictionWorkspace(id, prev.length + 1)]);
+    setActivePredictionWorkspaceId(id);
+    setPredictionUpdates([]);
+    setPredictionNote("");
+  }
+
+  function clearActivePredictionWorkspace() {
+    updateActivePredictionWorkspace({
+      country: "",
+      topic: "",
+      predictionTitle: "",
+      predictionFocus: "",
+      predictionRequest: "",
+      predictionHorizon: 24,
+      predictionOpenOnly: true,
+      predictionDueWithinHours: 0,
+      selectedPredictionId: null,
+    });
+    setPredictionNote("");
+    setPredictionUpdates([]);
+  }
+
+  const scopedPredictionTickets = useMemo(() => {
+    if (!activePredictionWorkspace) return [];
+    return predictionTickets.filter((row) => {
+      const scope = String(row.scope || "").trim();
+      if (activePredictionWorkspace.id === "ws-1") {
+        return scope === "ws-1" || scope === "V2" || scope === "";
+      }
+      return scope === activePredictionWorkspace.id;
+    });
+  }, [predictionTickets, activePredictionWorkspace]);
+
+  const filteredPredictionTickets = useMemo(() => {
+    let rows = [...scopedPredictionTickets].sort((a, b) => byDateDesc(a.updated_at, b.updated_at));
+    if (activePredictionWorkspace?.predictionOpenOnly) {
+      rows = rows.filter((row) => ["open", "watching"].includes(String(row.status || "").toLowerCase()));
+    }
+    if ((activePredictionWorkspace?.predictionDueWithinHours || 0) > 0) {
+      rows = rows.filter((row) => {
+        const hoursLeft = hoursUntilPredictionDue(row);
+        return hoursLeft != null && hoursLeft <= activePredictionWorkspace.predictionDueWithinHours;
+      });
+    }
+    return rows;
+  }, [scopedPredictionTickets, activePredictionWorkspace]);
+
+  useEffect(() => {
+    if (!activePredictionWorkspaceId && predictionWorkspaces[0]) {
+      setActivePredictionWorkspaceId(predictionWorkspaces[0].id);
+    }
+  }, [predictionWorkspaces, activePredictionWorkspaceId]);
+
+  useEffect(() => {
+    if (!selectedPredictionId) {
+      setPredictionUpdates([]);
+      return;
+    }
+    let cancelled = false;
+    async function run() {
+      try {
+        const rows = await apiGet(`/ai/predictions/${selectedPredictionId}/updates?limit=120`);
+        if (!cancelled) setPredictionUpdates(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setPredictionUpdates([]);
+      }
+    }
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPredictionId, lastSync]);
+
+  useEffect(() => {
+    if (!activePredictionWorkspace) return;
+    if (!filteredPredictionTickets.length) {
+      if (activePredictionWorkspace.selectedPredictionId !== null) {
+        updateActivePredictionWorkspace({ selectedPredictionId: null });
+      }
+      return;
+    }
+    if (!activePredictionWorkspace.selectedPredictionId) {
+      updateActivePredictionWorkspace({ selectedPredictionId: filteredPredictionTickets[0].id });
+      return;
+    }
+    if (!filteredPredictionTickets.some((row) => row.id === activePredictionWorkspace.selectedPredictionId)) {
+      updateActivePredictionWorkspace({ selectedPredictionId: filteredPredictionTickets[0].id });
+    }
+  }, [filteredPredictionTickets, activePredictionWorkspace]);
 
   const activeEvent = useMemo(() => {
     const focused = focusedEventId ? eventsById.get(focusedEventId) : null;
@@ -649,6 +1233,7 @@ export default function App() {
     () => [...new Set([...selectedEventIds, ...selectedAlertEventIds])],
     [selectedAlertEventIds, selectedEventIds]
   );
+  const totalSelectedCount = selectedEventIds.length + selectedAlertIds.length;
 
   const popupEvent = useMemo(() => {
     if (!popupEventId) return null;
@@ -661,6 +1246,10 @@ export default function App() {
     if (!popupEvent) return null;
     return sourceEndpointByName.get(popupEvent.source_name) || sources.find((row) => row.source_type === popupEvent.source_type)?.endpoint || null;
   }, [popupEvent, sourceEndpointByName, sources]);
+
+  const seenEventIdSet = useMemo(() => new Set(seenEventIds), [seenEventIds]);
+
+  const isUnseenEvent = useCallback((row) => (row?.id ? !seenEventIdSet.has(row.id) : false), [seenEventIdSet]);
 
   const workingEventIds = useMemo(() => {
     if (selectedContextEventIds.length > 0) return selectedContextEventIds;
@@ -712,36 +1301,111 @@ export default function App() {
 
   const trend = useMemo(() => buildTrend(filteredEvents), [filteredEvents]);
 
-  const broadcastNewsEvents = useMemo(() => {
-    const trusted = events.filter((row) => row.source_type === "news" && (!trustedOnly || isTrustedEvent(row)));
-    const fallback = events.filter((row) => row.source_type === "incident" && (!trustedOnly || isTrustedEvent(row)));
-    const rows = trusted.length > 0 ? trusted : fallback;
-    return [...rows].sort((a, b) => new Date(b.event_time).getTime() - new Date(a.event_time).getTime());
-  }, [events, trustedOnly]);
+  const v2Events = useMemo(() => {
+    let rows = [...sortedFilteredEvents];
+    if (v2TrustedOnly) rows = rows.filter((row) => isTrustedEvent(row));
+    if (v2Lane !== "all") rows = rows.filter((row) => eventLane(row) === v2Lane);
+    if (v2UnreadOnly) rows = rows.filter((row) => !seenEventIdSet.has(row.id));
+    return rows;
+  }, [sortedFilteredEvents, v2TrustedOnly, v2Lane, v2UnreadOnly, seenEventIdSet]);
 
-  const tickerEvents = useMemo(() => {
-    const rows = [...broadcastNewsEvents];
-    rows.sort((a, b) => {
-      const aTime = new Date(a.event_time).getTime();
-      const bTime = new Date(b.event_time).getTime();
-      const aScore = a.severity * 100 + a.relevance_score * 35;
-      const bScore = b.severity * 100 + b.relevance_score * 35;
-      if (bScore !== aScore) return bScore - aScore;
-      return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
-    });
-    return rows.slice(0, 20);
-  }, [broadcastNewsEvents]);
+  const v2LaneStats = useMemo(() => {
+    const lanes = ["geo", "cyber", "marine", "air"];
+    const baseRows = v2TrustedOnly ? sortedFilteredEvents.filter((row) => isTrustedEvent(row)) : sortedFilteredEvents;
+    const stats = { all: { total: baseRows.length, newCount: 0 } };
+    stats.all.newCount = baseRows.filter((row) => !seenEventIdSet.has(row.id) && minutesSince(eventDisplayTime(row)) <= 30).length;
+    for (const lane of lanes) {
+      const rows = baseRows.filter((row) => eventLane(row) === lane);
+      stats[lane] = {
+        total: rows.length,
+        newCount: rows.filter((row) => !seenEventIdSet.has(row.id) && minutesSince(eventDisplayTime(row)) <= 30).length
+      };
+    }
+    return stats;
+  }, [sortedFilteredEvents, v2TrustedOnly, seenEventIdSet]);
 
-  const lowerThirdLoop = useMemo(() => [...tickerEvents, ...tickerEvents], [tickerEvents]);
+  const v2Freshness = useMemo(() => {
+    const counts = { live: 0, ten: 0, oneHour: 0, threeHours: 0, stale: 0 };
+    for (const row of v2Events) {
+      const mins = minutesSince(eventDisplayTime(row));
+      if (mins <= 3) counts.live += 1;
+      else if (mins <= 10) counts.ten += 1;
+      else if (mins <= 60) counts.oneHour += 1;
+      else if (mins <= 180) counts.threeHours += 1;
+      else counts.stale += 1;
+    }
+    return counts;
+  }, [v2Events]);
 
-  const breakingEvents = useMemo(() => {
-    const rows = broadcastNewsEvents
-      .filter((row) => row.severity >= 3)
-      .sort((a, b) => new Date(b.event_time).getTime() - new Date(a.event_time).getTime());
-    return rows.slice(0, 12);
-  }, [broadcastNewsEvents]);
+  const v2StoryGroups = useMemo(() => {
+    const grouped = new Map();
+    for (const row of v2Events) {
+      const key = normalizeStoryTitle(row.title) || `event-${row.id}`;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(row);
+    }
+    return [...grouped.values()]
+      .map((items) => {
+        const sorted = [...items].sort((a, b) => byDateDesc(eventDisplayTime(a), eventDisplayTime(b)));
+        const lead = [...sorted].sort((a, b) => b.severity - a.severity || byDateDesc(eventDisplayTime(a), eventDisplayTime(b)))[0];
+        const sourcesSet = new Set(sorted.map((item) => item.source_name).filter(Boolean));
+        return {
+          key: `${lead.id}-${sorted.length}`,
+          lead,
+          size: sorted.length,
+          latestTime: eventDisplayTime(sorted[0]),
+          sources: [...sourcesSet].slice(0, 4)
+        };
+      })
+      .sort((a, b) => b.lead.severity - a.lead.severity || byDateDesc(a.latestTime, b.latestTime));
+  }, [v2Events]);
 
-  const primaryBroadcastEvent = useMemo(() => breakingEvents[0] || tickerEvents[0] || null, [breakingEvents, tickerEvents]);
+  const v2Narrative = useMemo(() => {
+    const top = v2Events[0];
+    const topHigh = v2Events.find((row) => row.severity >= 4);
+    const laneHot = ["geo", "cyber", "marine", "air"]
+      .map((lane) => ({ lane, count: v2Events.filter((row) => eventLane(row) === lane).length }))
+      .sort((a, b) => b.count - a.count)[0];
+    return {
+      happened: top ? displayText(top.title) : "لا توجد أحداث حالياً.",
+      why: topHigh
+        ? `الأولوية الآن: ${severityMeaning(topHigh.severity)} (S${topHigh.severity}) من ${displayText(topHigh.source_name)}.`
+        : "لا توجد أحداث عالية الشدة حالياً ضمن هذا الفلتر.",
+      next:
+        laneHot && laneHot.count > 0
+          ? `راقب مسار ${laneHot.lane === "geo" ? "جيوسياسي" : laneHot.lane === "cyber" ? "سيبراني" : laneHot.lane === "marine" ? "ملاحي" : "جوي"} خلال الساعة القادمة.`
+          : "تابع التحديثات الجديدة خلال الدقائق القادمة."
+    };
+  }, [v2Events]);
+
+  useEffect(() => {
+    const valid = new Set(v2Events.map((row) => row.id));
+    setV2SelectedEventIds((prev) => prev.filter((id) => valid.has(id)));
+  }, [v2Events]);
+
+  useEffect(() => {
+    if (!v2FocusedEventId && v2Events[0]) {
+      setV2FocusedEventId(v2Events[0].id);
+      return;
+    }
+    if (v2FocusedEventId && !v2Events.some((row) => row.id === v2FocusedEventId)) {
+      setV2FocusedEventId(v2Events[0]?.id ?? null);
+    }
+  }, [v2Events, v2FocusedEventId]);
+
+  const v2FocusedEvent = useMemo(() => {
+    if (v2FocusedEventId) return eventsById.get(v2FocusedEventId) || null;
+    return v2Events[0] || null;
+  }, [v2FocusedEventId, eventsById, v2Events]);
+
+  const selectedPredictionTicket = useMemo(
+    () => filteredPredictionTickets.find((row) => row.id === selectedPredictionId) || filteredPredictionTickets[0] || null,
+    [filteredPredictionTickets, selectedPredictionId]
+  );
+  const selectedPredictionSections = useMemo(
+    () => parseOperationalSections(selectedPredictionTicket?.prediction_text || ""),
+    [selectedPredictionTicket]
+  );
 
   const activeVideoSource = useMemo(
     () => skyVideoSources.find((row) => row.id === selectedVideoSourceId) || skyVideoSources[0],
@@ -765,6 +1429,13 @@ export default function App() {
   );
 
   const openAiConnected = aiStatus.configured && aiStatus.connected && privacy.openai_enabled;
+  const liveIngestionConnected = useMemo(() => {
+    if (ingestionRunning) return true;
+    if (!lastSync) return false;
+    const timestamp = new Date(lastSync).getTime();
+    if (!Number.isFinite(timestamp)) return false;
+    return Date.now() - timestamp <= 90 * 1000;
+  }, [lastSync, ingestionRunning]);
   const socialEnabledSources = useMemo(
     () => sources.filter((row) => row.enabled && row.source_type === "social").length,
     [sources]
@@ -772,9 +1443,8 @@ export default function App() {
 
   const translationCandidates = useMemo(() => {
     const inputs = [
-      ...filteredEvents.slice(0, 25).flatMap((row) => [row.title, row.summary]),
+      ...filteredEvents.slice(0, 120).flatMap((row) => [row.title, row.summary, row.details]),
       ...alerts.slice(0, 20).flatMap((row) => [row.title, row.details]),
-      ...tickerEvents.slice(0, 25).flatMap((row) => [row.title]),
       activeEvent?.title,
       activeEvent?.summary,
       activeEvent?.ai_assessment,
@@ -784,12 +1454,12 @@ export default function App() {
       popupEvent?.ai_assessment,
       summarizeSourceDetails(popupEvent)
     ];
-    return [...new Set(inputs.map(cleanText).filter((text) => text && likelyEnglish(text)))].slice(0, 90);
-  }, [activeEvent, alerts, filteredEvents, popupEvent, tickerEvents]);
+    return [...new Set(inputs.map(cleanText).filter((text) => text && likelyEnglish(text)))].slice(0, 180);
+  }, [activeEvent, alerts, filteredEvents, popupEvent]);
 
   useEffect(() => {
     if (!openAiConnected || translationCandidates.length === 0) return;
-    const missing = translationCandidates.filter((text) => !arabicMap[text]).slice(0, 40);
+    const missing = translationCandidates.filter((text) => !arabicMap[text]).slice(0, 120);
     if (missing.length === 0) return;
     let cancelled = false;
 
@@ -851,11 +1521,14 @@ export default function App() {
 
   function openEventPopup(eventId, options = {}) {
     if (!eventId) return;
-    setFocusedEventId(eventId);
-    if (typeof options.alertId === "number") {
-      setFocusedAlertId(options.alertId);
-    } else if (!options.keepAlert) {
-      setFocusedAlertId(null);
+    setSeenEventIds((prev) => (prev.includes(eventId) ? prev : [...prev, eventId]));
+    if (options.scope !== "v2") {
+      setFocusedEventId(eventId);
+      if (typeof options.alertId === "number") {
+        setFocusedAlertId(options.alertId);
+      } else if (!options.keepAlert) {
+        setFocusedAlertId(null);
+      }
     }
     setPopupEventId(eventId);
     void ensureEventLoaded(eventId);
@@ -863,6 +1536,7 @@ export default function App() {
 
   function focusEvent(eventId, options = {}) {
     if (!eventId) return;
+    setSeenEventIds((prev) => (prev.includes(eventId) ? prev : [...prev, eventId]));
     setFocusedEventId(eventId);
     if (typeof options.alertId === "number") {
       setFocusedAlertId(options.alertId);
@@ -875,12 +1549,141 @@ export default function App() {
     setSelectedSourceNames(picked);
   }
 
+  function markEventSeen(eventId) {
+    if (!eventId) return;
+    setSeenEventIds((prev) => (prev.includes(eventId) ? prev : [...prev, eventId]));
+  }
+
+  function toggleV2Selected(eventId) {
+    if (!eventId) return;
+    setV2SelectedEventIds((prev) => (prev.includes(eventId) ? prev.filter((id) => id !== eventId) : [...prev, eventId]));
+  }
+
+  async function analyzeV2Selected() {
+    const ids = v2SelectedEventIds.length > 0 ? v2SelectedEventIds : v2Events.slice(0, 30).map((row) => row.id);
+    if (ids.length === 0) {
+      setError("لا توجد عناصر في V2 للتحليل.");
+      return;
+    }
+    if (!activePredictionWorkspace) {
+      setError("لا توجد مساحة تحليل نشطة.");
+      return;
+    }
+    setSubmittingInsight(true);
+    try {
+      const structuredPrompt = buildOperationalAnalysisTemplate({
+        focus: activePredictionWorkspace.predictionFocus,
+        country: activePredictionWorkspace.country,
+        topic: activePredictionWorkspace.topic,
+        userRequest: activePredictionWorkspace.predictionRequest,
+      });
+      const insight = await apiPost("/ai/insights", {
+        title: `تحليل ${activePredictionWorkspace.label}: ${activePredictionWorkspace.predictionFocus || "تركيز عام"}`,
+        prompt: structuredPrompt,
+        event_ids: ids
+      });
+      setContentModal({
+        title: insight?.title || "تحليل V2",
+        content: insight?.content || "لا توجد بيانات.",
+        createdAt: insight?.created_at || null
+      });
+      await loadAll();
+    } catch (err) {
+      setError(err.message || "فشل تحليل عناصر V2.");
+    } finally {
+      setSubmittingInsight(false);
+    }
+  }
+
+  async function createPredictionTicket() {
+    const ids = v2SelectedEventIds.length > 0 ? v2SelectedEventIds : v2Events.slice(0, 40).map((row) => row.id);
+    if (!activePredictionWorkspace) {
+      setError("لا توجد مساحة توقع نشطة.");
+      return;
+    }
+    if (
+      !String(activePredictionWorkspace.predictionTitle || "").trim() ||
+      !String(activePredictionWorkspace.predictionFocus || "").trim() ||
+      !String(activePredictionWorkspace.predictionRequest || "").trim()
+    ) {
+      setError("أدخل عنوان التوقع والتركيز والطلب.");
+      return;
+    }
+    setCreatingPrediction(true);
+    try {
+      const structuredRequest = buildOperationalAnalysisTemplate({
+        focus: activePredictionWorkspace.predictionFocus,
+        country: activePredictionWorkspace.country,
+        topic: activePredictionWorkspace.topic,
+        userRequest: activePredictionWorkspace.predictionRequest,
+      });
+      const ticket = await apiPost("/ai/predictions", {
+        title: String(activePredictionWorkspace.predictionTitle || "").trim(),
+        focus_query: String(activePredictionWorkspace.predictionFocus || "").trim(),
+        request_text: structuredRequest,
+        horizon_hours: Number(activePredictionWorkspace.predictionHorizon) || 24,
+        scope: activePredictionWorkspace.id,
+        event_ids: ids
+      });
+      updateActivePredictionWorkspace({ selectedPredictionId: ticket?.id || null });
+      setPredictionNote("");
+      await loadAll();
+    } catch (err) {
+      setError(err.message || "فشل إنشاء تذكرة التوقع.");
+    } finally {
+      setCreatingPrediction(false);
+    }
+  }
+
+  async function pushPredictionUpdate(ticketId) {
+    if (!ticketId || updatingPrediction) return;
+    setUpdatingPrediction(true);
+    try {
+      const prefix = activePredictionWorkspace
+        ? `Update (${activePredictionWorkspace.label} | ${activePredictionWorkspace.country || "N/A"} | ${
+            activePredictionWorkspace.topic || "N/A"
+          }): `
+        : "";
+      await apiPost(`/ai/predictions/${ticketId}/update`, {
+        note: `${prefix}${predictionNote.trim()}`.trim(),
+        event_ids: v2SelectedEventIds
+      });
+      setPredictionNote("");
+      await loadAll();
+    } catch (err) {
+      setError(err.message || "فشل تحديث التوقع.");
+    } finally {
+      setUpdatingPrediction(false);
+    }
+  }
+
+  async function setPredictionOutcome(ticketId, outcome) {
+    if (!ticketId || updatingPrediction) return;
+    setUpdatingPrediction(true);
+    try {
+      await apiPost(`/ai/predictions/${ticketId}/outcome`, {
+        outcome,
+        note: predictionNote.trim(),
+        status: "resolved"
+      });
+      setPredictionNote("");
+      await loadAll();
+    } catch (err) {
+      setError(err.message || "فشل تحديث نتيجة التوقع.");
+    } finally {
+      setUpdatingPrediction(false);
+    }
+  }
+
   async function triggerIngestion() {
+    setIngestionRunning(true);
     try {
       await apiPost("/ingest/run?force=true");
       await loadAll();
     } catch (err) {
       setError(err.message || "فشل تشغيل السحب.");
+    } finally {
+      setIngestionRunning(false);
     }
   }
 
@@ -1154,14 +1957,13 @@ export default function App() {
       <header className="hero">
         <div>
           <p className="eyebrow">Regional Monitoring Stack</p>
-          <h1>رصد آخر الأخبار</h1>
+          <h1>منصة باحث</h1>
         </div>
         <div className="hero-actions">
-          <button className="btn btn-accent" type="button" onClick={triggerIngestion}>
-            تشغيل سحب فوري
-          </button>
-          <button className="btn btn-ghost" type="button" onClick={() => setSourceDrawerOpen((prev) => !prev)}>
-            {sourceDrawerOpen ? "إخفاء المصادر" : "المصادر والربط"}
+          <button className="openai-status openai-status-btn" type="button" onClick={triggerIngestion} title="اضغط لتشغيل السحب الفوري">
+            <span className={`status-dot ${liveIngestionConnected ? "online" : "offline"}`} />
+            <strong>السحب المباشر</strong>
+            <small>{liveIngestionConnected ? "Live" : "Stopped"}</small>
           </button>
           <div className="openai-status" title={aiStatus.message}>
             <span className={`status-dot ${openAiConnected ? "online" : "offline"}`} />
@@ -1172,17 +1974,26 @@ export default function App() {
         </div>
       </header>
 
+      {liveNotices.length > 0 ? (
+        <section className="live-notices">
+          {liveNotices.map((item) => (
+            <article key={item.id} className="live-notice-item">
+              {item.message}
+            </article>
+          ))}
+        </section>
+      ) : null}
+
       <section className="panel version-switch">
         <div className="version-switch-head">
           <h2>وضع المنصة</h2>
-          <span>V1 محفوظة | V2 للتجربة قبل الاعتماد</span>
         </div>
         <div className="version-tabs">
           <button className={`tab-btn ${versionTab === "v1" ? "active" : ""}`} type="button" onClick={() => setVersionTab("v1")}>
-            النسخة الحالية (V1)
+            اخر الاخبار
           </button>
           <button className={`tab-btn ${versionTab === "v2" ? "active" : ""}`} type="button" onClick={() => setVersionTab("v2")}>
-            النسخة التجريبية (V2)
+            خلية الذكاء الاصطناعي
           </button>
         </div>
       </section>
@@ -1204,44 +2015,21 @@ export default function App() {
                   allowFullScreen
                 />
                 <div className="video-live-badge">مباشر</div>
-                <div className="video-source-tabs">
-                  {skyVideoSources.map((source) => (
-                    <button
-                      key={source.id}
-                      type="button"
-                      className={`video-source-btn ${selectedVideoSourceId === source.id ? "active" : ""}`}
-                      onClick={() => setSelectedVideoSourceId(source.id)}
-                    >
-                      {source.label}
-                    </button>
-                  ))}
-                </div>
+              </div>
+              <div className="video-source-tabs">
+                {skyVideoSources.map((source) => (
+                  <button
+                    key={source.id}
+                    type="button"
+                    className={`video-source-btn ${selectedVideoSourceId === source.id ? "active" : ""}`}
+                    onClick={() => setSelectedVideoSourceId(source.id)}
+                  >
+                    {source.label}
+                  </button>
+                ))}
               </div>
           </div>
 
-          <div className="video-lower-third">
-            <span className="lower-third-label">عاجل</span>
-            <div className="lower-third-window" dir="ltr">
-              {tickerEvents.length === 0 ? (
-                <strong>{displayText(primaryBroadcastEvent?.title || "لا توجد تحديثات عاجلة حالياً.")}</strong>
-              ) : (
-                <div className="lower-third-track">
-                  {lowerThirdLoop.map((row, index) => (
-                    <button
-                      key={`lower-third-${row.id}-${index}`}
-                      className="lower-third-item"
-                      type="button"
-                      onClick={() => openEventPopup(row.id)}
-                    >
-                      <span className={`severity severity-${row.severity}`}>S{row.severity}</span>
-                      <strong>{displayText(row.title)}</strong>
-                      <small>{row.source_name}</small>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
             <div className="video-open-link">
               <a className="btn btn-small btn-ghost source-link-btn" href={activeVideoSource?.watchUrl} target="_blank" rel="noreferrer">
                 فتح البث المباشر من المصدر
@@ -1272,6 +2060,16 @@ export default function App() {
             </select>
           </label>
           <label>
+            شدة الحدث
+            <select value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value)}>
+              {severityOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             مصادر محددة (اختياري)
             <select className="multi-source-select" multiple size={4} value={selectedSourceNames} onChange={changeSelectedSources}>
               {availableSourceChoices.map((name) => (
@@ -1291,6 +2089,9 @@ export default function App() {
           </label>
         </div>
         <div className="quick-topics">
+          <button className="btn btn-ghost" type="button" onClick={() => setSourceDrawerOpen((prev) => !prev)}>
+            {sourceDrawerOpen ? "إخفاء المصادر" : "المصادر والربط"}
+          </button>
           <button className="btn btn-small" type="button" onClick={() => setQuery("حرب")}>
             تركيز الحرب
           </button>
@@ -1330,7 +2131,7 @@ export default function App() {
         <article className="stat-card">
           <h3>عالية الشدة</h3>
           <p>{stats.highSeverity}</p>
-          <small>عدد الأحداث بدرجة خطورة S4 و S5.</small>
+          <small>S4 = عالي (عاجل) | S5 = حرج جدا.</small>
         </article>
         <article className="stat-card">
           <h3>تنبيهات مفتوحة</h3>
@@ -1439,13 +2240,34 @@ export default function App() {
             <span>
               المحدد للتحليل: أحداث {selectedEventIds.length} | تنبيهات {selectedAlertIds.length}
             </span>
-            <button className="btn btn-small" type="button" onClick={clearSelections}>
-              مسح الاختيار
+            <button className="btn btn-small" type="button" onClick={clearSelections} disabled={totalSelectedCount === 0}>
+              إلغاء تحديد الكل
             </button>
           </div>
 
           {leftTab === "feed" ? (
             <>
+              <div className="live-feed-severity-strip">
+                <span>فلتر التدفق الحي:</span>
+                <button className={`btn btn-small ${severityFilter === "all" ? "active" : ""}`} type="button" onClick={() => setSeverityFilter("all")}>
+                  الكل
+                </button>
+                <button className={`btn btn-small ${severityFilter === "5" ? "active" : ""}`} type="button" onClick={() => setSeverityFilter("5")}>
+                  S5
+                </button>
+                <button className={`btn btn-small ${severityFilter === "4" ? "active" : ""}`} type="button" onClick={() => setSeverityFilter("4")}>
+                  S4
+                </button>
+                <button className={`btn btn-small ${severityFilter === "3" ? "active" : ""}`} type="button" onClick={() => setSeverityFilter("3")}>
+                  S3
+                </button>
+                <button className={`btn btn-small ${severityFilter === "2" ? "active" : ""}`} type="button" onClick={() => setSeverityFilter("2")}>
+                  S2
+                </button>
+                <button className={`btn btn-small ${severityFilter === "1" ? "active" : ""}`} type="button" onClick={() => setSeverityFilter("1")}>
+                  S1
+                </button>
+              </div>
               {feedTotalPages > 1 ? (
                 <div className="list-pagination top">
                   <div className="pagination-meta">
@@ -1493,13 +2315,20 @@ export default function App() {
                 {!loading && sortedFilteredEvents.length === 0 ? <p>لا توجد نتائج حسب الفلتر الحالي.</p> : null}
                 {visibleFeedEvents.map((eventItem) => (
                   <article
-                    className={`event-item ${focusedEventId === eventItem.id ? "focused" : ""} ${selectedEventIds.includes(eventItem.id) ? "selected" : ""}`}
+                    className={`event-item ${focusedEventId === eventItem.id ? "focused" : ""} ${
+                      selectedEventIds.includes(eventItem.id) ? "selected" : ""
+                    } ${isUnseenEvent(eventItem) ? "is-new" : ""}`}
                     key={eventItem.id}
+                    onMouseEnter={() => setSeenEventIds((prev) => (prev.includes(eventItem.id) ? prev : [...prev, eventItem.id]))}
                     onClick={() => openEventPopup(eventItem.id)}
                   >
                     <div className="event-top">
-                      <span className={`severity severity-${eventItem.severity}`}>S{eventItem.severity}</span>
+                      <span className={`severity severity-${eventItem.severity}`} title={severityMeaning(eventItem.severity)}>
+                        S{eventItem.severity}
+                      </span>
+                      <span className="severity-meaning">{severityMeaning(eventItem.severity)}</span>
                       <span className="source">{sourceTypeLabel(eventItem.source_type)}</span>
+                      {isUnseenEvent(eventItem) ? <span className="new-flag">جديد</span> : null}
                       {isTrustedEvent(eventItem) ? <span className="trusted-tag">موثوق</span> : null}
                       <label className="select-line inline" onClick={(event) => event.stopPropagation()}>
                         <input type="checkbox" checked={selectedEventIds.includes(eventItem.id)} onChange={() => toggleSelected(eventItem.id)} />
@@ -1509,8 +2338,8 @@ export default function App() {
                     <h3>{displayText(eventItem.title)}</h3>
                     <p>{displayText(eventItem.summary || eventItem.ai_assessment || eventItem.details || "بدون ملخص.").slice(0, 150)}</p>
                     <div className="event-meta">
-                      <span>{eventItem.source_name}</span>
-                      <time>{formatTime(eventItem.event_time)}</time>
+                      <span>{displayText(eventItem.source_name)}</span>
+                      <time>{formatTime(eventDisplayTime(eventItem))}</time>
                     </div>
                   </article>
                 ))}
@@ -1632,7 +2461,7 @@ export default function App() {
                 <section className="detail-body">
                   <h3>{displayText(activeEvent.title)}</h3>
                   <p className="details-meta">
-                    {sourceTypeLabel(activeEvent.source_type)} | {formatTime(activeEvent.event_time)} | الشدة S{activeEvent.severity}
+                    {sourceTypeLabel(activeEvent.source_type)} | {formatTime(eventDisplayTime(activeEvent))} | الشدة S{activeEvent.severity} ({severityMeaning(activeEvent.severity)})
                   </p>
                   {activeAlert ? (
                     <div className="linked-alert">
@@ -1716,13 +2545,13 @@ export default function App() {
                 </section>
 
                 <section className="chart-box">
-                  <h4>توزيع الشدة</h4>
+                  <h4>مستوى الخبر</h4>
                   {[1, 2, 3, 4, 5].map((level) => {
                     const max = Math.max(...Object.values(severityCounts), 1);
                     const width = `${(severityCounts[level] / max) * 100}%`;
                     return (
                       <div className="bar-row" key={level}>
-                        <span>S{level}</span>
+                        <span>{severityMeaning(level)} (S{level})</span>
                         <div className="bar-track">
                           <div className="bar-fill" style={{ width }} />
                         </div>
@@ -1927,6 +2756,437 @@ export default function App() {
         </section>
       </main>
 
+        </>
+      ) : (
+        <section className="v2-command-center">
+          <article className="panel v2-head">
+            <div className="panel-head">
+              <h2>مركز العمليات السردي V2</h2>
+              <span>عرض مباشر: ماذا حدث | لماذا مهم | ماذا نراقب تالياً</span>
+            </div>
+            <div className="quick-topics">
+              <button className="btn btn-accent" type="button" onClick={triggerIngestion}>
+                تحديث فوري
+              </button>
+              <button className="btn btn-small" type="button" onClick={() => setVersionTab("v1")}>
+                العودة إلى V1
+              </button>
+              <button className={`btn btn-small ${v2TrustedOnly ? "active" : ""}`} type="button" onClick={() => setV2TrustedOnly((prev) => !prev)}>
+                {v2TrustedOnly ? "مصادر موثوقة فقط" : "كل المصادر"}
+              </button>
+              <button className={`btn btn-small ${v2UnreadOnly ? "active" : ""}`} type="button" onClick={() => setV2UnreadOnly((prev) => !prev)}>
+                {v2UnreadOnly ? "إظهار الكل" : "غير المقروء فقط"}
+              </button>
+              <button className="btn btn-small btn-accent" type="button" onClick={analyzeV2Selected} disabled={submittingInsight}>
+                {submittingInsight ? "جارٍ التحليل..." : `تحليل المحدد في V2 (${v2SelectedEventIds.length})`}
+              </button>
+            </div>
+            <div className="v2-lanes">
+              <button className={`btn btn-small lane-btn ${v2Lane === "all" ? "active" : ""}`} type="button" onClick={() => setV2Lane("all")}>
+                كل المسارات ({v2LaneStats.all?.total || 0})
+                {v2LaneStats.all?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
+              </button>
+              <button className={`btn btn-small lane-btn ${v2Lane === "geo" ? "active" : ""}`} type="button" onClick={() => setV2Lane("geo")}>
+                جيوسياسي ({v2LaneStats.geo?.total || 0})
+                {v2LaneStats.geo?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
+              </button>
+              <button className={`btn btn-small lane-btn ${v2Lane === "cyber" ? "active" : ""}`} type="button" onClick={() => setV2Lane("cyber")}>
+                سيبراني ({v2LaneStats.cyber?.total || 0})
+                {v2LaneStats.cyber?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
+              </button>
+              <button className={`btn btn-small lane-btn ${v2Lane === "marine" ? "active" : ""}`} type="button" onClick={() => setV2Lane("marine")}>
+                ملاحي ({v2LaneStats.marine?.total || 0})
+                {v2LaneStats.marine?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
+              </button>
+              <button className={`btn btn-small lane-btn ${v2Lane === "air" ? "active" : ""}`} type="button" onClick={() => setV2Lane("air")}>
+                جوي ({v2LaneStats.air?.total || 0})
+                {v2LaneStats.air?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
+              </button>
+            </div>
+          </article>
+
+          <section className="v2-grid">
+            <article className="panel v2-narrative">
+              <h3>القصة الحية</h3>
+              <p>
+                <strong>ماذا حدث:</strong> {v2Narrative.happened}
+              </p>
+              <p>
+                <strong>لماذا مهم:</strong> {v2Narrative.why}
+              </p>
+              <p>
+                <strong>ماذا نراقب تالياً:</strong> {v2Narrative.next}
+              </p>
+            </article>
+
+            <article className="panel v2-freshness">
+              <h3>رادار الحداثة</h3>
+              <div className="v2-freshness-chips">
+                <span className="fresh-chip live">Live {v2Freshness.live}</span>
+                <span className="fresh-chip ten">10m {v2Freshness.ten}</span>
+                <span className="fresh-chip hour">1h {v2Freshness.oneHour}</span>
+                <span className="fresh-chip three">3h {v2Freshness.threeHours}</span>
+                <span className="fresh-chip stale">3h+ {v2Freshness.stale}</span>
+              </div>
+              <small>كل بطاقة تبيّن عمر الخبر الفعلي لحظة العرض.</small>
+            </article>
+
+            <article className="panel v2-story-stream">
+              <div className="panel-head">
+                <h3>تدفق القصص المدمجة</h3>
+                <span>{v2StoryGroups.length} قصة</span>
+              </div>
+              <div className="v2-story-list">
+                {v2StoryGroups.length === 0 ? <p>لا توجد قصص ضمن الفلتر الحالي.</p> : null}
+                {v2StoryGroups.slice(0, 18).map((group) => (
+                  <article
+                    key={group.key}
+                    className={`v2-story-card severity-s${group.lead.severity} ${
+                      !seenEventIdSet.has(group.lead.id) && minutesSince(eventDisplayTime(group.lead)) <= 10 ? "new-pulse" : ""
+                    } ${v2FocusedEventId === group.lead.id ? "is-focused" : ""}`}
+                    onClick={(event) => {
+                      const target = event.target;
+                      if (target instanceof Element && target.closest("button, a")) return;
+                      setV2FocusedEventId(group.lead.id);
+                      markEventSeen(group.lead.id);
+                    }}
+                  >
+                    <div className="v2-story-meta">
+                      <span className="story-sev">S{group.lead.severity}</span>
+                      <span className="story-fresh">{freshnessLabel(eventDisplayTime(group.lead))}</span>
+                      <span className="story-time">{formatRelativeTime(eventDisplayTime(group.lead))}</span>
+                    </div>
+                    <h4>{displayText(group.lead.title)}</h4>
+                    <p>{displayText(group.lead.summary) || "لا يوجد ملخص."}</p>
+                    <div className="v2-story-footer">
+                      <span>تأكيد مصادر: {group.size}</span>
+                      <span>{group.sources.join(" | ")}</span>
+                    </div>
+                    <div className="quick-topics">
+                      <label className="select-line">
+                        <input
+                          type="checkbox"
+                          checked={v2SelectedEventIds.includes(group.lead.id)}
+                          onChange={(event) => {
+                            event.stopPropagation();
+                            toggleV2Selected(group.lead.id);
+                          }}
+                        />
+                        تحديد للتحليل
+                      </label>
+                      <button
+                        className="btn btn-small"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setV2FocusedEventId(group.lead.id);
+                          markEventSeen(group.lead.id);
+                        }}
+                      >
+                        تركيز
+                      </button>
+                      <button
+                        className="btn btn-small btn-ghost"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openEventPopup(group.lead.id, { scope: "v2" });
+                        }}
+                      >
+                        فتح التفاصيل
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </article>
+
+            <article className="panel v2-focus-panel">
+              <div className="panel-head">
+                <h3>تركيز القصة</h3>
+                <span>{v2FocusedEvent ? `S${v2FocusedEvent.severity} | ${formatRelativeTime(eventDisplayTime(v2FocusedEvent))}` : "لا يوجد"}</span>
+              </div>
+              {v2FocusedEvent ? (
+                <>
+                  <h4>{displayText(v2FocusedEvent.title)}</h4>
+                  <p>{displayText(v2FocusedEvent.summary) || "لا يوجد ملخص."}</p>
+                  <p className="details-meta">
+                    {displayText(v2FocusedEvent.source_name)} | {formatTime(eventDisplayTime(v2FocusedEvent))}
+                  </p>
+                  <div className="quick-topics">
+                    <button className="btn btn-small btn-ghost" type="button" onClick={() => openEventPopup(v2FocusedEvent.id, { scope: "v2" })}>
+                      فتح التفاصيل
+                    </button>
+                    {v2FocusedEvent.url ? (
+                      <a className="btn btn-small btn-ghost source-link-btn" href={v2FocusedEvent.url} target="_blank" rel="noreferrer">
+                        زيارة الموقع الأصلي
+                      </a>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <p>لا توجد قصة محددة حالياً.</p>
+              )}
+            </article>
+
+            <article className="panel v2-predictions-panel">
+              <div className="panel-head">
+                <h3>تذاكر التوقع الذكي</h3>
+                <span>
+                  {filteredPredictionTickets.length} / {scopedPredictionTickets.length} تذكرة | {activePredictionWorkspace?.label || "مساحة"}
+                </span>
+              </div>
+              <div className="v2-workspace-tabs">
+                {predictionWorkspaces.map((workspace) => (
+                  <button
+                    key={workspace.id}
+                    type="button"
+                    className={`btn btn-small v2-workspace-tab ${activePredictionWorkspace?.id === workspace.id ? "active" : ""}`}
+                    onClick={() => setActivePredictionWorkspaceId(workspace.id)}
+                  >
+                    {workspace.label}
+                  </button>
+                ))}
+                <button className="btn btn-small btn-accent v2-workspace-add" type="button" onClick={addPredictionWorkspace}>
+                  + إضافة مساحة
+                </button>
+              </div>
+              <div className="quick-topics v2-prediction-filters">
+                <button
+                  className={`btn btn-small ${activePredictionWorkspace?.predictionOpenOnly ? "active" : ""}`}
+                  type="button"
+                  onClick={() =>
+                    updateActivePredictionWorkspace((prev) => ({
+                      predictionOpenOnly: !prev.predictionOpenOnly,
+                    }))
+                  }
+                >
+                  {activePredictionWorkspace?.predictionOpenOnly ? "المفتوحة فقط" : "كل التذاكر"}
+                </button>
+                <label className="v2-filter-label">
+                  التذاكر المستحقة خلال
+                  <select
+                    value={activePredictionWorkspace?.predictionDueWithinHours || 0}
+                    onChange={(event) =>
+                      updateActivePredictionWorkspace({
+                        predictionDueWithinHours: Number(event.target.value || 0),
+                      })
+                    }
+                  >
+                    <option value={0}>الكل</option>
+                    <option value={6}>6 ساعات</option>
+                    <option value={12}>12 ساعة</option>
+                    <option value={24}>24 ساعة</option>
+                    <option value={48}>48 ساعة</option>
+                    <option value={72}>72 ساعة</option>
+                  </select>
+                </label>
+                <button className="btn btn-small btn-danger" type="button" onClick={clearActivePredictionWorkspace}>
+                  مسح النموذج
+                </button>
+              </div>
+              <div className="source-form">
+                <label>
+                  الدولة المستهدفة
+                  <input
+                    value={activePredictionWorkspace?.country || ""}
+                    onChange={(event) => updateActivePredictionWorkspace({ country: event.target.value })}
+                  />
+                </label>
+                <label>
+                  الموضوع الأساسي
+                  <input
+                    value={activePredictionWorkspace?.topic || ""}
+                    onChange={(event) => updateActivePredictionWorkspace({ topic: event.target.value })}
+                  />
+                </label>
+                <label>
+                  عنوان التوقع
+                  <input
+                    value={activePredictionWorkspace?.predictionTitle || ""}
+                    onChange={(event) => updateActivePredictionWorkspace({ predictionTitle: event.target.value })}
+                  />
+                </label>
+                <label>
+                  تركيز التوقع
+                  <input
+                    value={activePredictionWorkspace?.predictionFocus || ""}
+                    onChange={(event) => updateActivePredictionWorkspace({ predictionFocus: event.target.value })}
+                  />
+                </label>
+                <label>
+                  طلب التوقع
+                  <textarea
+                    value={activePredictionWorkspace?.predictionRequest || ""}
+                    onChange={(event) => updateActivePredictionWorkspace({ predictionRequest: event.target.value })}
+                    rows={3}
+                  />
+                </label>
+                <label>
+                  الأفق الزمني (ساعة)
+                  <input
+                    type="number"
+                    min={1}
+                    max={720}
+                    value={activePredictionWorkspace?.predictionHorizon || 24}
+                    onChange={(event) =>
+                      updateActivePredictionWorkspace({
+                        predictionHorizon: Number(event.target.value || 24),
+                      })
+                    }
+                  />
+                </label>
+                <button className="btn btn-accent" type="button" onClick={createPredictionTicket} disabled={creatingPrediction}>
+                  {creatingPrediction ? "جارٍ الإنشاء..." : "إنشاء تذكرة توقع"}
+                </button>
+              </div>
+
+              <div className="v2-prediction-layout">
+                <div className="v2-prediction-list">
+                  {filteredPredictionTickets.map((ticket) => (
+                    <button
+                      key={ticket.id}
+                      type="button"
+                      className={`v2-ticket-btn ${selectedPredictionTicket?.id === ticket.id ? "active" : ""}`}
+                      onClick={() => updateActivePredictionWorkspace({ selectedPredictionId: ticket.id })}
+                    >
+                      <strong>{displayText(ticket.title)}</strong>
+                      <small>
+                        {displayText(ticket.focus_query)} | {ticket.status} | {ticket.outcome}
+                      </small>
+                      <small>
+                        الاستحقاق: {predictionDueAt(ticket) ? formatTime(predictionDueAt(ticket).toISOString()) : "غير متاح"}
+                      </small>
+                    </button>
+                  ))}
+                  {filteredPredictionTickets.length === 0 ? <p>لا توجد تذاكر ضمن الفلاتر الحالية.</p> : null}
+                </div>
+
+                <div className="v2-prediction-details">
+                  {selectedPredictionTicket ? (
+                    <>
+                      <h4>{displayText(selectedPredictionTicket.title)}</h4>
+                      <p className="details-meta">
+                        الثقة: {Math.round((selectedPredictionTicket.confidence || 0) * 100)}% | الأفق: {selectedPredictionTicket.horizon_hours}h |
+                        النتيجة: {selectedPredictionTicket.outcome}
+                      </p>
+                      <p className="details-meta">
+                        وقت الاستحقاق:{" "}
+                        {predictionDueAt(selectedPredictionTicket) ? formatTime(predictionDueAt(selectedPredictionTicket).toISOString()) : "غير متاح"}
+                      </p>
+                      <div className="v2-operational-grid">
+                        {operationalSectionDefs.map((section) => {
+                          const raw = selectedPredictionSections[section.key];
+                          const bullets = toBulletLines(displayText(raw));
+                          const preview = bullets.slice(0, 2).join(" - ");
+                          const content = bullets.length > 0 ? bullets.map((line) => `• ${line}`).join("\n") : "غير متوفر بعد في هذه التذكرة.";
+                          return (
+                            <button
+                              key={section.key}
+                              type="button"
+                              className="detail-block v2-operational-card"
+                              onClick={() =>
+                                setContentModal({
+                                  title: section.title,
+                                  content,
+                                  createdAt: selectedPredictionTicket?.updated_at || selectedPredictionTicket?.created_at || null,
+                                })
+                              }
+                            >
+                              <h4>{section.title}</h4>
+                              <p>{preview || "غير متوفر بعد في هذه التذكرة."}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        className="detail-block v2-click-block"
+                        onClick={() =>
+                          setContentModal({
+                            title: "النص الكامل (منسق بالعربية)",
+                            content: displayText(cleanOperationalTaggedText(selectedPredictionTicket.prediction_text)),
+                            createdAt: selectedPredictionTicket?.updated_at || selectedPredictionTicket?.created_at || null,
+                          })
+                        }
+                      >
+                        <h4>النص الكامل (منسق بالعربية)</h4>
+                        <p>{displayText(cleanOperationalTaggedText(selectedPredictionTicket.prediction_text))}</p>
+                      </button>
+                      <label>
+                        تحديث/ملاحظة
+                        <textarea value={predictionNote} onChange={(event) => setPredictionNote(event.target.value)} rows={2} />
+                      </label>
+                      <div className="quick-topics">
+                        <button className="btn btn-small" type="button" onClick={() => pushPredictionUpdate(selectedPredictionTicket.id)} disabled={updatingPrediction}>
+                          تحديث التوقع
+                        </button>
+                        <button className="btn btn-small" type="button" onClick={() => setPredictionOutcome(selectedPredictionTicket.id, "correct")} disabled={updatingPrediction}>
+                          صحيح
+                        </button>
+                        <button className="btn btn-small" type="button" onClick={() => setPredictionOutcome(selectedPredictionTicket.id, "partial")} disabled={updatingPrediction}>
+                          جزئي
+                        </button>
+                        <button className="btn btn-small btn-danger" type="button" onClick={() => setPredictionOutcome(selectedPredictionTicket.id, "wrong")} disabled={updatingPrediction}>
+                          خاطئ
+                        </button>
+                      </div>
+                      <div className="v2-prediction-history">
+                        {predictionUpdates.map((update) => (
+                          <button
+                            key={update.id}
+                            type="button"
+                            className="detail-block v2-click-block"
+                            onClick={() =>
+                              setContentModal({
+                                title: `تحديث التوقع: ${update.kind}${update.outcome ? ` | ${update.outcome}` : ""}`,
+                                content: displayText(update.content),
+                                createdAt: update.created_at,
+                              })
+                            }
+                          >
+                            <h4>
+                              {update.kind} {update.outcome ? `| ${update.outcome}` : ""}
+                            </h4>
+                            <p>{displayText(update.content)}</p>
+                            <small>{formatTime(update.created_at)}</small>
+                          </button>
+                        ))}
+                        {predictionUpdates.length === 0 ? <p>لا يوجد سجل تحديثات بعد.</p> : null}
+                      </div>
+                    </>
+                  ) : (
+                    <p>اختر تذكرة لعرض تاريخ التوقع.</p>
+                  )}
+                </div>
+              </div>
+
+              <section className="v2-leaderboard">
+                <div className="panel-head">
+                  <h4>لوحة دقة النموذج عبر الزمن</h4>
+                  <span>{aiStatus.model || "Model"}</span>
+                </div>
+                <div className="v2-leaderboard-list">
+                  {predictionLeaderboard.map((row) => (
+                    <article key={`${row.model}-${row.window_hours}`} className="detail-block">
+                      <h4>{row.window_label}</h4>
+                      <p>
+                        الدقة: {Math.round((Number(row.accuracy || 0) * 10000) / 100)}% | التذاكر المقيمة: {row.evaluated_tickets}
+                      </p>
+                      <small>
+                        صحيح: {row.correct_count} | جزئي: {row.partial_count} | خاطئ: {row.wrong_count} | التغير:{" "}
+                        {Math.round((Number(row.trend_delta || 0) * 10000) / 100)}%
+                      </small>
+                    </article>
+                  ))}
+                  {predictionLeaderboard.length === 0 ? <p>لا توجد بيانات تقييم كافية بعد.</p> : null}
+                </div>
+              </section>
+            </article>
+          </section>
+        </section>
+      )}
+
       {contentModal ? (
         <div className="event-modal-overlay" onClick={() => setContentModal(null)}>
           <article className="event-modal panel content-modal" onClick={(event) => event.stopPropagation()}>
@@ -1954,7 +3214,8 @@ export default function App() {
               </button>
             </div>
             <p className="details-meta">
-              {sourceTypeLabel(popupEvent.source_type)} | {formatTime(popupEvent.event_time)} | الشدة S{popupEvent.severity}
+              {sourceTypeLabel(popupEvent.source_type)} | {formatTime(eventDisplayTime(popupEvent))} | الشدة S{popupEvent.severity} (
+              {severityMeaning(popupEvent.severity)})
             </p>
             <div className="detail-sections">
               <article className="detail-block">
@@ -1992,23 +3253,6 @@ export default function App() {
           </article>
         </div>
       ) : null}
-        </>
-      ) : (
-        <section className="panel version-preview">
-          <div className="panel-head">
-            <h2>النسخة التجريبية V2</h2>
-            <span>بيئة اختبار منفصلة عن V1</span>
-          </div>
-          <p>
-            هذه المساحة مخصصة لبناء خط مصادر العمليات الجديد (LiveUAmap / NOTAM / NASA FIRMS / ACLED) بدون التأثير على النسخة الحالية.
-          </p>
-          <div className="quick-topics">
-            <button className="btn btn-accent" type="button" onClick={() => setVersionTab("v1")}>
-              العودة إلى النسخة الحالية
-            </button>
-          </div>
-        </section>
-      )}
     </div>
   );
 }

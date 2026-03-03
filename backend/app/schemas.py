@@ -152,3 +152,60 @@ class AITranslateBulkRequest(BaseModel):
 
 class AITranslateBulkResponse(BaseModel):
     translations: list[str] = Field(default_factory=list)
+
+
+class AIPredictionCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=220)
+    focus_query: str = Field(min_length=2, max_length=220)
+    request_text: str = Field(min_length=2, max_length=4000)
+    horizon_hours: int = Field(default=24, ge=1, le=720)
+    scope: str = Field(default="general", max_length=120)
+    event_ids: list[int] = Field(default_factory=list)
+
+
+class AIPredictionUpdateCreate(BaseModel):
+    note: str = Field(default="", max_length=4000)
+    event_ids: list[int] = Field(default_factory=list)
+
+
+class AIPredictionOutcomeSet(BaseModel):
+    outcome: Literal["correct", "partial", "wrong", "unknown"]
+    note: str = Field(default="", max_length=2000)
+    status: Literal["open", "watching", "resolved"] = "resolved"
+
+
+class AIPredictionTicketRead(BaseModel):
+    id: int
+    title: str
+    focus_query: str
+    request_text: str
+    prediction_text: str
+    confidence: float
+    horizon_hours: int
+    status: str
+    outcome: str
+    scope: str
+    related_event_ids: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class AIPredictionUpdateRead(BaseModel):
+    id: int
+    ticket_id: int
+    kind: str
+    content: str
+    outcome: Optional[str]
+    created_at: datetime
+
+
+class AIPredictionLeaderboardRow(BaseModel):
+    model: str
+    window_hours: int
+    window_label: str
+    evaluated_tickets: int
+    accuracy: float
+    correct_count: int
+    partial_count: int
+    wrong_count: int
+    trend_delta: float

@@ -97,6 +97,42 @@ def seed_default_sources(session: Session) -> None:
                 parser_hint="rss",
             )
         )
+    if settings.default_bbc_arabic_feed:
+        defaults.append(
+            Source(
+                name="BBC Arabic Feed",
+                source_type="news",
+                endpoint=settings.default_bbc_arabic_feed,
+                parser_hint="rss",
+            )
+        )
+    if settings.default_france24_ar_feed:
+        defaults.append(
+            Source(
+                name="France 24 Arabic Feed",
+                source_type="news",
+                endpoint=settings.default_france24_ar_feed,
+                parser_hint="rss",
+            )
+        )
+    if settings.default_rt_arabic_feed:
+        defaults.append(
+            Source(
+                name="RT Arabic Feed",
+                source_type="news",
+                endpoint=settings.default_rt_arabic_feed,
+                parser_hint="rss",
+            )
+        )
+    if settings.default_independentarabia_feed:
+        defaults.append(
+            Source(
+                name="Independent Arabia Feed",
+                source_type="news",
+                endpoint=settings.default_independentarabia_feed,
+                parser_hint="rss",
+            )
+        )
     if settings.default_skynews_feed:
         defaults.append(
             Source(
@@ -106,7 +142,6 @@ def seed_default_sources(session: Session) -> None:
                 parser_hint="rss",
             )
         )
-
     inserted = False
     for source in defaults:
         if _source_exists(session=session, source_type=source.source_type, endpoint=source.endpoint):

@@ -8,7 +8,7 @@ from sqlmodel import Session, desc, select
 from app.api.auth import require_api_key
 from app.config import settings
 from app.database import engine, get_session
-from app.models import AIChatMessage, AIInsight, Alert, Event, Source
+from app.models import AIPredictionTicket, AIPredictionUpdate, AIChatMessage, AIInsight, Alert, Event, Source
 from app.schemas import (
     AIChatDeleteResponse,
     AIChatMessageRead,
@@ -18,6 +18,12 @@ from app.schemas import (
     AIInsightDeleteResponse,
     AIInsightRead,
     AIPrivacyRead,
+    AIPredictionCreate,
+    AIPredictionLeaderboardRow,
+    AIPredictionOutcomeSet,
+    AIPredictionTicketRead,
+    AIPredictionUpdateCreate,
+    AIPredictionUpdateRead,
     AIStatusRead,
     AIReportPublishRequest,
     AIReportRead,
@@ -59,6 +65,14 @@ def _as_ai_message_read(message: AIChatMessage) -> AIChatMessageRead:
 
 def _as_ai_insight_read(insight: AIInsight) -> AIInsightRead:
     return AIInsightRead.model_validate(insight, from_attributes=True)
+
+
+def _as_prediction_ticket_read(ticket: AIPredictionTicket) -> AIPredictionTicketRead:
+    return AIPredictionTicketRead.model_validate(ticket, from_attributes=True)
+
+
+def _as_prediction_update_read(update: AIPredictionUpdate) -> AIPredictionUpdateRead:
+    return AIPredictionUpdateRead.model_validate(update, from_attributes=True)
 
 
 def _normalize_endpoint(endpoint: str | None) -> str:
@@ -110,7 +124,7 @@ def get_events(
     query = select(Event).where(Event.severity >= min_severity)
     if source_type:
         query = query.where(Event.source_type == source_type)
-    query = query.order_by(desc(Event.event_time)).limit(min(1000, limit * 8))
+    query = query.order_by(desc(Event.created_at)).limit(min(1000, limit * 8))
     rows = session.exec(query).all()
     if query_text:
         needle = query_text.strip().lower()
@@ -334,6 +348,130 @@ def ai_create_insight(
         event_ids=payload.event_ids,
     )
     return _as_ai_insight_read(row)
+
+
+@router.get("/ai/predictions", response_model=list[AIPredictionTicketRead])
+def ai_predictions(
+    limit: int = Query(default=120, ge=1, le=300),
+    session: Session = Depends(get_session),
+) -> list[AIPredictionTicketRead]:
+    service = AIWorkspaceService(session=session)
+    rows = service.get_prediction_tickets(limit=limit)
+    return [_as_prediction_ticket_read(row) for row in rows]
+
+
+@router.get("/ai/predictions/leaderboard", response_model=list[AIPredictionLeaderboardRow])
+def ai_prediction_leaderboard(session: Session = Depends(get_session)) -> list[AIPredictionLeaderboardRow]:
+    service = AIWorkspaceService(session=session)
+    rows = service.get_prediction_leaderboard()
+    return [AIPredictionLeaderboardRow(**row) for row in rows]
+
+
+@router.get("/ai/predictions/{ticket_id}", response_model=AIPredictionTicketRead)
+def ai_prediction_one(ticket_id: int, session: Session = Depends(get_session)) -> AIPredictionTicketRead:
+    row = session.get(AIPredictionTicket, ticket_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Prediction ticket not found")
+    return _as_prediction_ticket_read(row)
+
+
+@router.get("/ai/predictions/{ticket_id}/updates", response_model=list[AIPredictionUpdateRead])
+def ai_prediction_updates(
+    ticket_id: int,
+    limit: int = Query(default=120, ge=1, le=300),
+    session: Session = Depends(get_session),
+) -> list[AIPredictionUpdateRead]:
+    if session.get(AIPredictionTicket, ticket_id) is None:
+        raise HTTPException(status_code=404, detail="Prediction ticket not found")
+    service = AIWorkspaceService(session=session)
+    rows = service.get_prediction_updates(ticket_id=ticket_id, limit=limit)
+    return [_as_prediction_update_read(row) for row in rows]
+
+
+@router.post("/ai/predictions", response_model=AIPredictionTicketRead)
+def ai_prediction_create(
+    payload: AIPredictionCreate,
+    session: Session = Depends(get_session),
+) -> AIPredictionTicketRead:
+    service = AIWorkspaceService(session=session)
+    ticket, update = service.create_prediction_ticket(
+        title=payload.title,
+        focus_query=payload.focus_query,
+        request_text=payload.request_text,
+        horizon_hours=payload.horizon_hours,
+        scope=payload.scope,
+        event_ids=payload.event_ids,
+    )
+    event_bus.publish_nowait(
+        {
+            "type": "prediction",
+            "action": "created",
+            "ticket_id": ticket.id,
+            "update_id": update.id,
+            "title": ticket.title,
+            "created_at": ticket.created_at.isoformat(),
+        }
+    )
+    return _as_prediction_ticket_read(ticket)
+
+
+@router.post("/ai/predictions/{ticket_id}/update", response_model=AIPredictionUpdateRead)
+def ai_prediction_update(
+    ticket_id: int,
+    payload: AIPredictionUpdateCreate,
+    session: Session = Depends(get_session),
+) -> AIPredictionUpdateRead:
+    service = AIWorkspaceService(session=session)
+    try:
+        ticket, update = service.append_prediction_update(
+            ticket_id=ticket_id,
+            note=payload.note,
+            event_ids=payload.event_ids,
+            kind="update",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    event_bus.publish_nowait(
+        {
+            "type": "prediction",
+            "action": "updated",
+            "ticket_id": ticket.id,
+            "update_id": update.id,
+            "title": ticket.title,
+            "created_at": update.created_at.isoformat(),
+        }
+    )
+    return _as_prediction_update_read(update)
+
+
+@router.post("/ai/predictions/{ticket_id}/outcome", response_model=AIPredictionTicketRead)
+def ai_prediction_outcome(
+    ticket_id: int,
+    payload: AIPredictionOutcomeSet,
+    session: Session = Depends(get_session),
+) -> AIPredictionTicketRead:
+    service = AIWorkspaceService(session=session)
+    try:
+        ticket, update = service.set_prediction_outcome(
+            ticket_id=ticket_id,
+            outcome=payload.outcome,
+            note=payload.note,
+            status=payload.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    event_bus.publish_nowait(
+        {
+            "type": "prediction",
+            "action": "outcome",
+            "ticket_id": ticket.id,
+            "update_id": update.id,
+            "title": ticket.title,
+            "outcome": ticket.outcome,
+            "created_at": update.created_at.isoformat(),
+        }
+    )
+    return _as_prediction_ticket_read(ticket)
 
 
 @router.get("/ai/reports", response_model=list[AIReportRead])

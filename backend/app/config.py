@@ -22,7 +22,10 @@ class Settings(BaseSettings):
     reports_dir: str = "./data/reports"
 
     trusted_domains: str = (
-        "cnn.com,edition.cnn.com,alarabiya.net,gulfnews.com,news.sky.com,skynews.com,skynewsarabia.com,"
+        "cnn.com,edition.cnn.com,alarabiya.net,gulfnews.com,wam.ae,24.ae,sharjah24.ae,alroeya.com,"
+        "emaratalyoum.com,albayan.ae,alkhaleej.ae,alittihad.ae,"
+        "news.sky.com,skynews.com,skynewsarabia.com,"
+        "bbc.com,france24.com,arabic.rt.com,rt.com,independentarabia.com,"
         "reliefweb.int,gdacs.org,cisa.gov,"
         "opensky-network.org,marinetraffic.com,flightradar24.com,reddit.com"
     )
@@ -53,32 +56,24 @@ class Settings(BaseSettings):
 
     default_news_rss: str | None = "https://reliefweb.int/updates?format=rss"
     default_news_parser_hint: str = "rss"
-    default_incident_feed: str | None = "https://www.gdacs.org/xml/rss.xml"
+    default_incident_feed: str | None = None
     default_incident_parser_hint: str = "rss"
-    default_flight_feed: str | None = "https://opensky-network.org/api/states/all"
+    default_flight_feed: str | None = None
     default_flight_parser_hint: str = "opensky"
     default_marine_feed: str | None = None
     default_marine_parser_hint: str = "marinetraffic"
-    default_cyber_feed: str | None = "https://www.cisa.gov/news-events/cybersecurity-advisories.xml"
+    default_cyber_feed: str | None = None
     default_cyber_parser_hint: str = "cyber_rss"
     default_social_feed: str | None = None
     default_social_parser_hint: str = "social_reddit_json"
-    default_cnn_gulf_feed: str | None = (
-        "https://news.google.com/rss/search?q=site:cnn.com%20(gulf%20OR%20middle%20east%20war)"
-        "&hl=en-US&gl=US&ceid=US:en"
-    )
-    default_alarabiya_gulf_feed: str | None = (
-        "https://news.google.com/rss/search?q=site:alarabiya.net%20(gulf%20OR%20middle%20east%20war)"
-        "&hl=en-US&gl=US&ceid=US:en"
-    )
-    default_gulfnews_feed: str | None = (
-        "https://news.google.com/rss/search?q=site:gulfnews.com%20(gulf%20OR%20middle%20east%20war)"
-        "&hl=en-US&gl=US&ceid=US:en"
-    )
-    default_skynews_feed: str | None = (
-        "https://news.google.com/rss/search?q=(site:news.sky.com%20OR%20site:skynewsarabia.com)%20"
-        "(gulf%20OR%20middle%20east%20war)&hl=en-US&gl=US&ceid=US:en"
-    )
+    default_cnn_gulf_feed: str | None = None
+    default_alarabiya_gulf_feed: str | None = None
+    default_gulfnews_feed: str | None = None
+    default_bbc_arabic_feed: str | None = "https://www.bbc.com/arabic/index.xml"
+    default_france24_ar_feed: str | None = "https://www.france24.com/ar/rss"
+    default_rt_arabic_feed: str | None = "https://arabic.rt.com/rss/"
+    default_independentarabia_feed: str | None = "https://www.independentarabia.com/rss.xml"
+    default_skynews_feed: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

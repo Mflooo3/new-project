@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import re
 from typing import Callable
 
 from sqlalchemy import true
@@ -8,6 +9,7 @@ from app.config import settings
 from app.models import Alert, Event, Source
 from app.services.alerts import build_alerts
 from app.services.analysis import AIAnalyzer
+from app.services.ai_workspace import AIWorkspaceService
 from app.services.fetchers.base import RawEvent
 from app.services.fetchers.cyber import fetch_cyber_feed
 from app.services.fetchers.custom import fetch_custom_json
@@ -55,6 +57,45 @@ MONITORED_TOPICS = {
     "عاجل",
 }
 
+SPORTS_KEYWORDS = {
+    "football",
+    "soccer",
+    "premier league",
+    "la liga",
+    "champions league",
+    "fifa",
+    "uefa",
+    "liverpool",
+    "arsenal",
+    "barcelona",
+    "real madrid",
+    "match",
+    "matches",
+    "goal",
+    "goals",
+    "coach",
+    "transfer",
+    "sports",
+    "sport",
+    "كورة",
+    "كرة",
+    "كرة القدم",
+    "مباراة",
+    "مباريات",
+    "هدف",
+    "أهداف",
+    "دوري",
+    "الدوري",
+    "الدوري الإنجليزي",
+    "الدوري الاسباني",
+    "كأس",
+    "رياضة",
+    "رياضي",
+    "ليفربول",
+    "برشلونة",
+    "ريال مدريد",
+}
+
 
 def _in_gulf(lat: float | None, lon: float | None) -> bool:
     if lat is None or lon is None:
@@ -81,6 +122,16 @@ def _topic_hits(*values: str | None) -> int:
     return sum(1 for keyword in MONITORED_TOPICS if keyword in text)
 
 
+def _contains_arabic(*values: str | None) -> bool:
+    text = " ".join(filter(None, values))
+    return bool(re.search(r"[\u0600-\u06FF]", text))
+
+
+def _is_sports_content(*values: str | None) -> bool:
+    text = " ".join(filter(None, values)).lower()
+    return any(keyword in text for keyword in SPORTS_KEYWORDS)
+
+
 def _relevance_score(raw: RawEvent) -> float:
     hits = _keyword_hits(raw.title, raw.summary, raw.details, raw.location)
     score = min(0.8, hits * 0.15)
@@ -93,6 +144,8 @@ def _relevance_score(raw: RawEvent) -> float:
 
 
 def _is_relevant(raw: RawEvent, source_type: str) -> bool:
+    if source_type == "news" and _is_sports_content(raw.title, raw.summary, raw.details):
+        return False
     if source_type == "news":
         # Keep all configured news records; operators can narrow using source + query filters in UI.
         return True
@@ -188,6 +241,9 @@ class IngestionService:
             for raw in raw_events:
                 if not raw.title:
                     continue
+                if source.source_type == "news" and "uae feed" in (source.name or "").lower():
+                    if not _contains_arabic(raw.title, raw.summary):
+                        continue
                 if not _is_relevant(raw, source.source_type):
                     continue
                 if self._exists(source, raw):
@@ -237,6 +293,22 @@ class IngestionService:
                         },
                     }
                 )
+
+                try:
+                    prediction_updates = AIWorkspaceService(session=self.session).auto_update_predictions_for_event(event)
+                    for update in prediction_updates:
+                        event_bus.publish_nowait(
+                            {
+                                "type": "prediction",
+                                "action": "auto_update",
+                                "ticket_id": update.ticket_id,
+                                "update_id": update.id,
+                                "created_at": update.created_at.isoformat(),
+                            }
+                        )
+                except Exception:
+                    # Prediction updates should not block ingestion.
+                    pass
 
         return {
             "sources_polled": sources_polled,

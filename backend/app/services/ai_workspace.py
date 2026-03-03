@@ -14,7 +14,7 @@ from reportlab.pdfgen import canvas
 from sqlmodel import Session, desc, select
 
 from app.config import settings
-from app.models import AIChatMessage, AIInsight, Event
+from app.models import AIPredictionTicket, AIPredictionUpdate, AIChatMessage, AIInsight, Event
 from app.services.sentiment import sentiment
 
 try:  # pragma: no cover - optional runtime dependency
@@ -233,6 +233,213 @@ class AIWorkspaceService:
         if count:
             self.session.commit()
         return count
+
+    def get_prediction_tickets(self, limit: int = 120) -> list[AIPredictionTicket]:
+        return self.session.exec(select(AIPredictionTicket).order_by(desc(AIPredictionTicket.updated_at)).limit(limit)).all()
+
+    def get_prediction_updates(self, ticket_id: int, limit: int = 120) -> list[AIPredictionUpdate]:
+        return self.session.exec(
+            select(AIPredictionUpdate)
+            .where(AIPredictionUpdate.ticket_id == ticket_id)
+            .order_by(desc(AIPredictionUpdate.created_at))
+            .limit(limit)
+        ).all()
+
+    def get_prediction_leaderboard(self) -> list[dict[str, Any]]:
+        windows: list[tuple[int, str]] = [
+            (24, "آخر 24 ساعة"),
+            (72, "آخر 72 ساعة"),
+            (168, "آخر 7 أيام"),
+            (720, "آخر 30 يوم"),
+            (0, "كل الوقت"),
+        ]
+        now = datetime.now(timezone.utc)
+        model_name = (settings.openai_model or "").strip() or "gpt-4.1-mini"
+        score_map = {"correct": 1.0, "partial": 0.5, "wrong": 0.0}
+        rows: list[dict[str, Any]] = []
+
+        def _eval_window(start: datetime | None, end: datetime | None = None) -> tuple[float, int, int, int, int]:
+            query = select(AIPredictionTicket).where(AIPredictionTicket.outcome.in_(["correct", "partial", "wrong"]))
+            if start is not None:
+                query = query.where(AIPredictionTicket.updated_at >= start)
+            if end is not None:
+                query = query.where(AIPredictionTicket.updated_at < end)
+            tickets = self.session.exec(query).all()
+            total = len(tickets)
+            if total == 0:
+                return 0.0, 0, 0, 0, 0
+            correct = sum(1 for ticket in tickets if ticket.outcome == "correct")
+            partial = sum(1 for ticket in tickets if ticket.outcome == "partial")
+            wrong = sum(1 for ticket in tickets if ticket.outcome == "wrong")
+            score = sum(score_map.get(ticket.outcome, 0.0) for ticket in tickets)
+            accuracy = round(score / total, 4)
+            return accuracy, total, correct, partial, wrong
+
+        for hours, label in windows:
+            if hours == 0:
+                accuracy, total, correct, partial, wrong = _eval_window(start=None)
+                prev_accuracy = accuracy
+            else:
+                start = now - timedelta(hours=hours)
+                prev_start = start - timedelta(hours=hours)
+                accuracy, total, correct, partial, wrong = _eval_window(start=start)
+                prev_accuracy, _, _, _, _ = _eval_window(start=prev_start, end=start)
+            rows.append(
+                {
+                    "model": model_name,
+                    "window_hours": hours,
+                    "window_label": label,
+                    "evaluated_tickets": total,
+                    "accuracy": accuracy,
+                    "correct_count": correct,
+                    "partial_count": partial,
+                    "wrong_count": wrong,
+                    "trend_delta": round(accuracy - prev_accuracy, 4),
+                }
+            )
+        return rows
+
+    def create_prediction_ticket(
+        self,
+        *,
+        title: str,
+        focus_query: str,
+        request_text: str,
+        horizon_hours: int,
+        scope: str,
+        event_ids: list[int],
+    ) -> tuple[AIPredictionTicket, AIPredictionUpdate]:
+        events = self._load_context_events(event_ids=event_ids or [], question=focus_query, limit=80)
+        prompt = (
+            f"أنشئ توقعاً تشغيلياً واضحاً مع سيناريو رئيسي خلال {horizon_hours} ساعة. "
+            f"التركيز: {focus_query}. الطلب: {request_text}."
+        )
+        prediction_text = self._generate_answer(question=prompt, events=events)
+        confidence = self._estimate_confidence_from_text(prediction_text)
+        related_event_ids = ",".join(str(event.id) for event in events[:120] if event.id is not None)
+        now = datetime.now(timezone.utc)
+
+        ticket = AIPredictionTicket(
+            title=title.strip(),
+            focus_query=focus_query.strip(),
+            request_text=request_text.strip(),
+            prediction_text=prediction_text,
+            confidence=confidence,
+            horizon_hours=horizon_hours,
+            scope=scope.strip() or "general",
+            related_event_ids=related_event_ids,
+            status="open",
+            outcome="unknown",
+            created_at=now,
+            updated_at=now,
+        )
+        self.session.add(ticket)
+        self.session.commit()
+        self.session.refresh(ticket)
+
+        update = AIPredictionUpdate(
+            ticket_id=ticket.id or 0,
+            kind="initial",
+            content=prediction_text,
+            outcome=None,
+        )
+        self.session.add(update)
+        self.session.commit()
+        self.session.refresh(update)
+        return ticket, update
+
+    def append_prediction_update(
+        self,
+        *,
+        ticket_id: int,
+        note: str,
+        event_ids: list[int],
+        kind: str = "update",
+    ) -> tuple[AIPredictionTicket, AIPredictionUpdate]:
+        ticket = self.session.get(AIPredictionTicket, ticket_id)
+        if ticket is None:
+            raise ValueError("Prediction ticket not found")
+        events = self._load_context_events(event_ids=event_ids or [], question=ticket.focus_query, limit=70)
+        prompt = (
+            f"حدّث توقع التذكرة بشكل موجز وقابل للمتابعة. "
+            f"العنوان: {ticket.title}. التركيز: {ticket.focus_query}. ملاحظة: {note or 'بدون'}."
+        )
+        update_text = self._generate_answer(question=prompt, events=events)
+        update = AIPredictionUpdate(
+            ticket_id=ticket.id or 0,
+            kind=kind,
+            content=update_text,
+            outcome=None,
+        )
+        self.session.add(update)
+        ticket.updated_at = datetime.now(timezone.utc)
+        if events:
+            ids_text = ",".join(str(event.id) for event in events[:120] if event.id is not None)
+            if ids_text:
+                ticket.related_event_ids = ids_text
+        self.session.add(ticket)
+        self.session.commit()
+        self.session.refresh(ticket)
+        self.session.refresh(update)
+        return ticket, update
+
+    def set_prediction_outcome(
+        self,
+        *,
+        ticket_id: int,
+        outcome: str,
+        note: str,
+        status: str,
+    ) -> tuple[AIPredictionTicket, AIPredictionUpdate]:
+        ticket = self.session.get(AIPredictionTicket, ticket_id)
+        if ticket is None:
+            raise ValueError("Prediction ticket not found")
+        ticket.outcome = outcome
+        ticket.status = status
+        ticket.updated_at = datetime.now(timezone.utc)
+        self.session.add(ticket)
+        update = AIPredictionUpdate(
+            ticket_id=ticket.id or 0,
+            kind="outcome",
+            content=f"Outcome: {outcome}. {note or ''}".strip(),
+            outcome=outcome,
+        )
+        self.session.add(update)
+        self.session.commit()
+        self.session.refresh(ticket)
+        self.session.refresh(update)
+        return ticket, update
+
+    def auto_update_predictions_for_event(self, event: Event) -> list[AIPredictionUpdate]:
+        text = " ".join(filter(None, [event.title, event.summary, event.details, event.tags])).lower()
+        if not text:
+            return []
+        tickets = self.session.exec(
+            select(AIPredictionTicket).where(AIPredictionTicket.status.in_(["open", "watching"])).limit(80)
+        ).all()
+        now = datetime.now(timezone.utc)
+        created: list[AIPredictionUpdate] = []
+        for ticket in tickets:
+            tokens = [token for token in re.split(r"\s+", ticket.focus_query.lower()) if len(token) >= 4]
+            if not tokens:
+                continue
+            if not any(token in text for token in tokens[:10]):
+                continue
+            if ticket.updated_at and now - ticket.updated_at < timedelta(minutes=20):
+                continue
+            update = AIPredictionUpdate(
+                ticket_id=ticket.id or 0,
+                kind="auto",
+                content=f"تحديث تلقائي مرتبط بالتركيز ({ticket.focus_query}): {event.title}",
+                outcome=None,
+            )
+            ticket.updated_at = now
+            self.session.add(ticket)
+            self.session.add(update)
+            self.session.commit()
+            self.session.refresh(update)
+            created.append(update)
+        return created
 
     def chat(self, message: str, event_ids: list[int] | None = None) -> tuple[AIChatMessage, AIInsight | None]:
         clean_message = message.strip()
@@ -769,6 +976,16 @@ class AIWorkspaceService:
             draw_line(raw, font_size=10, gap=5)
 
         pdf.save()
+
+    @staticmethod
+    def _estimate_confidence_from_text(text: str) -> float:
+        value = 0.55
+        lower = (text or "").lower()
+        if "مرجح" in lower or "راجح" in lower or "high probability" in lower:
+            value += 0.15
+        if "غير مؤكد" in lower or "uncertain" in lower or "منخفض الاحتمال" in lower:
+            value -= 0.12
+        return max(0.05, min(0.95, round(value, 2)))
 
     @staticmethod
     def _should_create_insight(message: str) -> bool:
