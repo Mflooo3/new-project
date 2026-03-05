@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     environment: str = "development"
     database_url: str = "sqlite:///./data/gulf_watch.db"
     poll_seconds: int = 120
+    prediction_review_enabled: bool = False
+    prediction_review_seconds: int = 600
+    prediction_review_min_interval_minutes: int = 10
     news_max_age_hours: int = 24
     use_redis_worker: bool = False
     redis_url: str = "redis://localhost:6379/0"
@@ -24,20 +27,26 @@ class Settings(BaseSettings):
 
     trusted_domains: str = (
         "cnn.com,edition.cnn.com,alarabiya.net,gulfnews.com,wam.ae,24.ae,sharjah24.ae,alroeya.com,"
-        "emaratalyoum.com,albayan.ae,alkhaleej.ae,alittihad.ae,"
+        "emaratalyoum.com,albayan.ae,alkhaleej.ae,alittihad.ae,khaleejtimes.com,emirates247.com,thenationalnews.com,"
         "news.sky.com,skynews.com,skynewsarabia.com,"
         "bbc.com,france24.com,arabic.rt.com,rt.com,independentarabia.com,"
         "reliefweb.int,gdacs.org,cisa.gov,"
-        "opensky-network.org,marinetraffic.com,flightradar24.com,reddit.com"
+        "opensky-network.org,api.jsoncargo.com,jsoncargo.com,marinetraffic.com,flightradar24.com,"
+        "youtube.com,www.youtube.com,youtu.be,x.com,twitter.com"
     )
 
     fr24_api_key: str | None = None
     fr24_auth_header: str = "x-apikey"
+    fr24_auth_scheme: str | None = None
+    fr24_accept_version: str | None = None
     fr24_api_key_param: str | None = None
 
     marinetraffic_api_key: str | None = None
     marinetraffic_auth_header: str | None = None
     marinetraffic_api_key_param: str = "api_key"
+    jsoncargo_api_key: str | None = None
+    jsoncargo_auth_header: str = "x-api-key"
+    jsoncargo_api_key_param: str | None = None
 
     newsdata_api_key: str | None = None
     gnews_api_key: str | None = None
@@ -65,7 +74,7 @@ class Settings(BaseSettings):
     default_flight_feed: str | None = None
     default_flight_parser_hint: str = "opensky"
     default_marine_feed: str | None = None
-    default_marine_parser_hint: str = "marinetraffic"
+    default_marine_parser_hint: str = "jsoncargo"
     default_cyber_feed: str | None = None
     default_cyber_parser_hint: str = "cyber_rss"
     default_social_feed: str | None = None

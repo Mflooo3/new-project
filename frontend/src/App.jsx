@@ -1,4 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, streamEvents } from "./api";
 
 const sourceTypeOptions = [
@@ -129,7 +131,31 @@ const presetSources = [
     name: "WAM UAE Feed",
     source_type: "news",
     endpoint:
-      "https://news.google.com/rss/search?q=site:wam.ae%20(uae%20OR%20dubai%20OR%20abu%20dhabi)&hl=ar&gl=AE&ceid=AE:ar",
+      "https://news.google.com/rss/search?q=site:wam.ae%20(uae%20OR%20dubai%20OR%20abu%20dhabi%20OR%20war%20OR%20attack%20OR%20killed%20OR%20deaths%20OR%20fatalities%20OR%20injuries)&hl=en-US&gl=US&ceid=US:en",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "Khaleej Times UAE Feed",
+    source_type: "news",
+    endpoint:
+      "https://news.google.com/rss/search?q=site:khaleejtimes.com%20(uae%20OR%20dubai%20OR%20abu%20dhabi%20OR%20war%20OR%20attack%20OR%20killed%20OR%20deaths%20OR%20fatalities%20OR%20injuries)&hl=en-US&gl=US&ceid=US:en",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "Emirates 24/7 UAE Feed",
+    source_type: "news",
+    endpoint:
+      "https://news.google.com/rss/search?q=site:emirates247.com%20(uae%20OR%20dubai%20OR%20abu%20dhabi%20OR%20war%20OR%20attack%20OR%20killed%20OR%20deaths%20OR%20fatalities%20OR%20injuries)&hl=en-US&gl=US&ceid=US:en",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
+    name: "The National UAE Feed",
+    source_type: "news",
+    endpoint:
+      "https://news.google.com/rss/search?q=site:thenationalnews.com%20(uae%20OR%20dubai%20OR%20abu%20dhabi%20OR%20war%20OR%20attack%20OR%20killed%20OR%20deaths%20OR%20fatalities%20OR%20injuries)&hl=en-US&gl=US&ceid=US:en",
     parser_hint: "rss",
     poll_interval_seconds: 180
   },
@@ -182,6 +208,13 @@ const presetSources = [
     poll_interval_seconds: 180
   },
   {
+    name: "Abu Dhabi TV YouTube Feed",
+    source_type: "news",
+    endpoint: "https://www.youtube.com/feeds/videos.xml?channel_id=UCZ33NIO6rgl291T88-9jreQ",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
+  },
+  {
     name: "Al Roeya UAE Feed",
     source_type: "news",
     endpoint:
@@ -195,6 +228,20 @@ const presetSources = [
     endpoint:
       "https://news.google.com/rss/search?q=(shipping%20OR%20tanker%20OR%20vessel%20OR%20maritime%20OR%20%E2%80%9C%D9%85%D9%84%D8%A7%D8%AD%D8%A9%E2%80%9D)%20(gulf%20OR%20hormuz%20OR%20uae%20OR%20%D8%A7%D9%84%D8%AE%D9%84%D9%8A%D8%AC%20OR%20%D9%87%D8%B1%D9%85%D8%B2)&hl=ar&gl=AE&ceid=AE:ar",
     parser_hint: "rss",
+    poll_interval_seconds: 120
+  },
+  {
+    name: "OpenSky Gulf Airspace (Official API)",
+    source_type: "flight",
+    endpoint: "https://opensky-network.org/api/states/all?lamin=16&lomin=45&lamax=32&lomax=60",
+    parser_hint: "opensky",
+    poll_interval_seconds: 90
+  },
+  {
+    name: "JSONCargo Gulf AIS (Official API)",
+    source_type: "marine",
+    endpoint: "https://api.jsoncargo.com/api/v1/vessel/finder?country_iso=GULF&type=cargo",
+    parser_hint: "jsoncargo",
     poll_interval_seconds: 120
   },
   {
@@ -223,7 +270,23 @@ const presetSources = [
     name: "X Trusted GCC Agencies",
     source_type: "social",
     endpoint:
-      "https://api.x.com/2/tweets/search/recent?query=(from%3Awamnews%20OR%20from%3Aspagov%20OR%20from%3AQNAArabic%20OR%20from%3AKUNAArabTimes%20OR%20from%3ABNA_BH%20OR%20from%3AOmanNewsAgency)%20(%D8%B9%D8%A7%D8%AC%D9%84%20OR%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20OR%20%D8%A7%D9%84%D8%AE%D9%84%D9%8A%D8%AC%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA)%20lang%3Aar%20-is%3Aretweet&max_results=60",
+      "https://api.x.com/2/tweets/search/recent?query=(from%3Awamnews%20OR%20from%3Aspagov%20OR%20from%3AQNAEnglish%20OR%20from%3AQNAArabic%20OR%20from%3AKUNAArabTimes%20OR%20from%3ABNA_BH%20OR%20from%3AOmanNewsAgency%20OR%20from%3AMOIUAE%20OR%20from%3Anet_ad)%20(%D8%B9%D8%A7%D8%AC%D9%84%20OR%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20OR%20%D8%A7%D9%84%D8%AE%D9%84%D9%8A%D8%AC%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA)%20lang%3Aar%20-is%3Aretweet&max_results=60",
+    parser_hint: "x_recent",
+    poll_interval_seconds: 90
+  },
+  {
+    name: "X UAE Government + Media Offices",
+    source_type: "social",
+    endpoint:
+      "https://api.x.com/2/tweets/search/recent?query=(from%3Awamnews%20OR%20from%3Auaegov%20OR%20from%3ADXBMediaOffice%20OR%20from%3Aadmediaoffice)%20(%D8%B9%D8%A7%D8%AC%D9%84%20OR%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA%20OR%20UAE)%20lang%3Aar%20-is%3Aretweet&max_results=60",
+    parser_hint: "x_recent",
+    poll_interval_seconds: 90
+  },
+  {
+    name: "X UAE News Outlets",
+    source_type: "social",
+    endpoint:
+      "https://api.x.com/2/tweets/search/recent?query=(from%3Agulf_news%20OR%20from%3Akhaleejtimes%20OR%20from%3Aemirates247%20OR%20from%3Athenationalnews)%20(%D8%B9%D8%A7%D8%AC%D9%84%20OR%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA%20OR%20UAE)%20-is%3Aretweet&max_results=60",
     parser_hint: "x_recent",
     poll_interval_seconds: 90
   },
@@ -245,6 +308,67 @@ const presetSources = [
   }
 ];
 
+const officialPresetSourceNames = new Set([
+  "WAM UAE Feed",
+  "Sky News Arabia RSS",
+  "BBC Arabic RSS",
+  "France 24 Arabic RSS",
+  "X Trusted GCC Agencies",
+  "X UAE Government + Media Offices",
+  "X UAE News Outlets",
+  "X Trusted Arab News Channels",
+  "X Trusted Intl Arabic + Gulf",
+  "Abu Dhabi TV YouTube Feed",
+  "OpenSky Gulf Airspace (Official API)",
+  "JSONCargo Gulf AIS (Official API)",
+]);
+
+const officialSourceNameMarkers = [
+  "wam",
+  "spa",
+  "qna",
+  "kuna",
+  "bna",
+  "oman",
+  "moiuae",
+  "uaegov",
+  "dxbmediaoffice",
+  "admediaoffice",
+  "gulf_news",
+  "khaleejtimes",
+  "emirates247",
+  "thenationalnews",
+  "net_ad",
+  "abu dhabi tv",
+  "ministry of interior",
+  "opensky",
+  "jsoncargo",
+  "marinetraffic",
+  "official",
+  "licensed api",
+];
+
+const officialAgencyXHandles = new Set([
+  "wamnews",
+  "spagov",
+  "qnaenglish",
+  "qnaarabic",
+  "kunaarabtimes",
+  "bna_bh",
+  "omannewsagency",
+  "moiuae",
+  "uaegov",
+  "dxbmediaoffice",
+  "admediaoffice",
+  "gulf_news",
+  "khaleejtimes",
+  "emirates247",
+  "thenationalnews",
+  "net_ad",
+]);
+
+const officialPresetSources = presetSources.filter((preset) => officialPresetSourceNames.has(preset.name));
+
 const trustedDomains = [
   "cnn.com",
   "edition.cnn.com",
@@ -252,6 +376,9 @@ const trustedDomains = [
   "google.com",
   "alarabiya.net",
   "gulfnews.com",
+  "khaleejtimes.com",
+  "emirates247.com",
+  "thenationalnews.com",
   "wam.ae",
   "24.ae",
   "sharjah24.ae",
@@ -272,9 +399,13 @@ const trustedDomains = [
   "gdacs.org",
   "cisa.gov",
   "opensky-network.org",
+  "api.jsoncargo.com",
+  "jsoncargo.com",
   "marinetraffic.com",
   "flightradar24.com",
-  "reddit.com",
+  "youtube.com",
+  "www.youtube.com",
+  "youtu.be",
   "x.com",
   "twitter.com"
 ];
@@ -283,6 +414,9 @@ const trustedNameMarkers = [
   "cnn",
   "alarabiya",
   "gulf news",
+  "khaleej times",
+  "emirates 24/7",
+  "the national",
   "wam",
   "24.ae",
   "sharjah24",
@@ -297,10 +431,13 @@ const trustedNameMarkers = [
   "france 24",
   "rt arabic",
   "independent arabia",
+  "abu dhabi tv",
+  "youtube",
   "reliefweb",
   "gdacs",
   "cisa",
   "opensky",
+  "jsoncargo",
   "marinetraffic",
   "flightradar",
   "x gulf live feed"
@@ -357,6 +494,157 @@ const arabicPreferredNewsDomains = [
 const LIST_PAGE_SIZE = 3;
 const SOURCE_DRAWER_PAGE_SIZE = 5;
 const DEFAULT_NEWS_WINDOW_HOURS = Math.max(0, Number(import.meta.env.VITE_NEWS_MAX_AGE_HOURS || 24));
+const predictionReviewIntervalOptions = [
+  { value: 600, label: "كل 10 دقائق" },
+  { value: 1800, label: "كل 30 دقيقة" },
+  { value: 3600, label: "كل ساعة" },
+  { value: 7200, label: "كل ساعتين" },
+];
+
+const threatCountryDefs = [
+  {
+    country: "UAE",
+    country_ar: "الإمارات",
+    lat: 24.4539,
+    lon: 54.3773,
+    markers: ["uae", "united arab emirates", "dubai", "abu dhabi", "الإمارات", "الامارات", "أبوظبي", "دبي"],
+  },
+  {
+    country: "Qatar",
+    country_ar: "قطر",
+    lat: 25.2854,
+    lon: 51.531,
+    markers: ["qatar", "doha", "قطر", "الدوحة"],
+  },
+  {
+    country: "Kuwait",
+    country_ar: "الكويت",
+    lat: 29.3759,
+    lon: 47.9774,
+    markers: ["kuwait", "الكويت"],
+  },
+  {
+    country: "Bahrain",
+    country_ar: "البحرين",
+    lat: 26.2285,
+    lon: 50.586,
+    markers: ["bahrain", "البحرين", "المنامة"],
+  },
+  {
+    country: "Saudi Arabia",
+    country_ar: "السعودية",
+    lat: 24.7136,
+    lon: 46.6753,
+    markers: ["saudi", "saudi arabia", "ksa", "السعودية", "الرياض", "جدة"],
+  },
+  {
+    country: "Oman",
+    country_ar: "عمان",
+    lat: 23.588,
+    lon: 58.3829,
+    markers: ["oman", "muscat", "عمان", "مسقط"],
+  },
+  {
+    country: "Jordan",
+    country_ar: "الأردن",
+    lat: 31.9539,
+    lon: 35.9106,
+    markers: ["jordan", "الأردن", "عمان الأردن"],
+  },
+];
+
+const UAE_COUNTRY_MARKERS = ["uae", "united arab emirates", "الإمارات", "الامارات", "emirates"];
+const UAE_IATA_AIRPORT_CODES = new Set(["AUH", "DXB", "DWC", "SHJ", "AAN", "RKT", "FJR", "XNB", "AZI", "OMAA", "OMDB"]);
+const THREAT_SIGNAL_MAX_VALUE = 1500;
+const THREAT_SIGNAL_MAX_DIGITS = 4;
+const ICAO_COUNTRY_PREFIX_MAP = {
+  OM: "UAE",
+  OE: "Saudi Arabia",
+  OT: "Qatar",
+  OK: "Kuwait",
+  OB: "Bahrain",
+  OO: "Oman",
+  OJ: "Jordan",
+  OI: "Iran",
+  OR: "Iraq",
+  OP: "Pakistan",
+  HE: "Egypt",
+  EG: "United Kingdom",
+  LF: "France",
+  ED: "Germany",
+  ET: "Germany",
+  LE: "Spain",
+  LI: "Italy",
+  EH: "Netherlands",
+  LS: "Switzerland",
+  UU: "Russia",
+  UE: "Russia",
+  UH: "Russia",
+  UR: "Ukraine",
+  VI: "India",
+  VO: "India",
+};
+
+const threatSignalDefs = [
+  {
+    key: "ballistic",
+    label: "بالستي",
+    patterns: [
+      /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:صاروخ|صواريخ)?\s*(?:بالستي(?:ة)?|ballistic(?:\s+missiles?)?)/giu,
+      /(?:بالستي(?:ة)?|ballistic(?:\s+missiles?)?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)/giu,
+      /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:اعتراض(?:ات)?|interceptions?)\s*(?:ل|of)?\s*(?:صاروخ(?:ات)?|missiles?|تهديد(?:ات)?\s+جوية)/giu,
+      /(?:اعتراض(?:ات)?|interceptions?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)\s*(?:صاروخ(?:ات)?|missiles?|تهديد(?:ات)?\s+جوية)?/giu,
+    ],
+    mentionPatterns: [
+      /\bballistic(?:\s+missiles?)?\b/iu,
+      /صاروخ(?:\s+)?بالستي(?:ة)?/u,
+      /صواريخ(?:\s+)?بالستية/u,
+      /(?:صاروخ|صواريخ|missiles?)/iu,
+    ],
+  },
+  {
+    key: "cruise",
+    label: "كروز",
+    patterns: [
+      /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:صاروخ|صواريخ)?\s*(?:كروز|cruise(?:\s+missiles?)?)/giu,
+      /(?:كروز|cruise(?:\s+missiles?)?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)/giu,
+      /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:صاروخ|صواريخ)?\s*(?:مجنح(?:ة)?|مجنّح(?:ة)?)/giu,
+    ],
+    mentionPatterns: [
+      /\bcruise(?:\s+missiles?)?\b/iu,
+      /صاروخ(?:\s+)?كروز/u,
+      /صواريخ(?:\s+)?كروز/u,
+      /صاروخ(?:\s+)?مجنح(?:ة)?/u,
+    ],
+  },
+  {
+    key: "drones",
+    label: "مسيّرات",
+    patterns: [
+      /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:طائرات|مسي(?:رة|رات)|درون(?:ات)?|drones?|uavs?)/giu,
+      /(?:مسي(?:رة|رات)|درون(?:ات)?|drones?|uavs?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)/giu,
+      /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:تهديد(?:ات)?\s+جوية|air\s+threats?)/giu,
+    ],
+    mentionPatterns: [
+      /\bdrones?\b/iu,
+      /\buavs?\b/iu,
+      /مسي(?:رة|رات)/u,
+      /درون(?:ات)?/u,
+      /طائرة(?:\s+)?مسي(?:رة|ّرة)/u,
+      /تهديد(?:ات)?\s+جوية/u,
+      /اعتراض(?:ات)?\s+جوية/u,
+    ],
+  },
+];
+
+const maritimeZoneDefs = [
+  { id: "hormuz", label: "مضيق هرمز", lat: 26.57, lon: 56.25, markers: ["hormuz", "هرمز", "strait of hormuz"] },
+  { id: "oman_gulf", label: "خليج عمان", lat: 24.3, lon: 58.6, markers: ["gulf of oman", "خليج عمان"] },
+  { id: "arabian_gulf", label: "الخليج العربي", lat: 27.2, lon: 51.7, markers: ["arabian gulf", "persian gulf", "الخليج العربي", "الخليج"] },
+  { id: "red_sea", label: "البحر الأحمر", lat: 20.8, lon: 38.8, markers: ["red sea", "البحر الأحمر"] },
+  { id: "arabian_sea", label: "بحر العرب", lat: 18.5, lon: 64.0, markers: ["arabian sea", "بحر العرب"] },
+  { id: "mediterranean", label: "البحر المتوسط", lat: 34.8, lon: 29.5, markers: ["mediterranean", "البحر الأبيض المتوسط", "البحر المتوسط"] },
+];
 
 const skyVideoSources = [
   {
@@ -392,6 +680,19 @@ const skyVideoSources = [
     watchUrl: "https://www.youtube.com/channel/UCfiwzLy-8yKzIbsmZTzxDgw/live"
   },
   {
+    id: "abudhabi-tv-live",
+    label: "Abu Dhabi TV (قناة أبوظبي)",
+    embedUrl:
+      import.meta.env.VITE_ABUDHABI_TV_EMBED_URL ||
+      "https://www.youtube.com/embed/d5MZBC81zMg?autoplay=1",
+    embedCandidates: [
+      import.meta.env.VITE_ABUDHABI_TV_EMBED_URL || "https://www.youtube.com/embed/d5MZBC81zMg?autoplay=1",
+      "https://www.youtube.com/embed/ntakmDtUNnA?autoplay=1",
+      "https://www.youtube.com/embed/live_stream?channel=UCZ33NIO6rgl291T88-9jreQ&autoplay=1",
+    ],
+    watchUrl: "https://www.youtube.com/watch?v=d5MZBC81zMg"
+  },
+  {
     id: "sky-arabia-live",
     label: "Sky News Arabia",
     embedUrl:
@@ -418,8 +719,56 @@ function forceUnmutedEmbedUrl(value) {
 
 function formatTime(value) {
   if (!value) return "غير متاح";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "غير متاح" : date.toLocaleString("ar-AE", { hour12: false, timeZone: "Asia/Dubai" });
+  const date = parsePossiblyDate(value);
+  if (!date) return "غير متاح";
+  return date.toLocaleString("ar-AE", { hour12: false, timeZone: "Asia/Dubai" });
+}
+
+function predictionStatusLabel(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "resolved") return "مغلق";
+  if (key === "watching") return "مراقبة";
+  if (key === "open") return "مفتوح";
+  return value || "غير معروف";
+}
+
+function predictionOutcomeLabel(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "correct") return "صحيح";
+  if (key === "partial") return "جزئي";
+  if (key === "wrong") return "خاطئ";
+  if (key === "unknown") return "غير محسوم";
+  return value || "غير محسوم";
+}
+
+function predictionScorePercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(100, Math.round(numeric * 100)));
+}
+
+function predictionUpdateKindLabel(value) {
+  const key = String(value || "").toLowerCase().trim();
+  if (key === "initial") return "إنشاء التوقع";
+  if (key === "update") return "تحديث";
+  if (key === "auto") return "تحديث تلقائي";
+  if (key === "auto_review") return "مراجعة آلية";
+  if (key === "outcome") return "تقييم النتيجة";
+  return value || "تحديث";
+}
+
+function parsePossiblyDate(value) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  let normalized = raw;
+  // Backend rows can be timezone-less; treat those as UTC to keep UI clocks stable.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw)) {
+    normalized = `${raw}Z`;
+  }
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
 }
 
 function eventDisplayTime(row) {
@@ -429,8 +778,8 @@ function eventDisplayTime(row) {
 function isLiveFreshNews(row, maxAgeHours) {
   if (Number(maxAgeHours) <= 0) return true;
   if (!row || row.source_type !== "news") return true;
-  const date = new Date(eventDisplayTime(row));
-  if (Number.isNaN(date.getTime())) return false;
+  const date = parsePossiblyDate(eventDisplayTime(row));
+  if (!date) return false;
   return Date.now() - date.getTime() <= Number(maxAgeHours) * 60 * 60 * 1000;
 }
 
@@ -445,8 +794,8 @@ function severityMeaning(level) {
 
 function formatRelativeTime(value) {
   if (!value) return "الآن";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "غير معروف";
+  const date = parsePossiblyDate(value);
+  if (!date) return "غير معروف";
   const diffMs = Math.max(0, Date.now() - date.getTime());
   const minutes = Math.floor(diffMs / 60000);
   if (minutes <= 1) return "الآن";
@@ -459,8 +808,8 @@ function formatRelativeTime(value) {
 
 function minutesSince(value) {
   if (!value) return 0;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 0;
+  const date = parsePossiblyDate(value);
+  if (!date) return 0;
   return Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
 }
 
@@ -473,10 +822,15 @@ function freshnessLabel(value) {
   return "3h+";
 }
 
+function sectionToggleLabel(isOpen) {
+  return isOpen ? "إخفاء" : "إظهار";
+}
+
 function predictionDueAt(ticket) {
   if (!ticket?.created_at) return null;
-  const createdMs = new Date(ticket.created_at).getTime();
-  if (!Number.isFinite(createdMs)) return null;
+  const createdDate = parsePossiblyDate(ticket.created_at);
+  if (!createdDate) return null;
+  const createdMs = createdDate.getTime();
   const hours = Number(ticket.horizon_hours || 0);
   if (!Number.isFinite(hours) || hours <= 0) return null;
   return new Date(createdMs + hours * 60 * 60 * 1000);
@@ -489,15 +843,700 @@ function hoursUntilPredictionDue(ticket) {
   return diffMs / (60 * 60 * 1000);
 }
 
-function buildOperationalAnalysisTemplate({ focus, country, topic, userRequest }) {
+const ARABIC_INDIC_DIGITS = {
+  "٠": "0",
+  "١": "1",
+  "٢": "2",
+  "٣": "3",
+  "٤": "4",
+  "٥": "5",
+  "٦": "6",
+  "٧": "7",
+  "٨": "8",
+  "٩": "9",
+};
+
+const COUNTRY_ALIAS_MAP = {
+  "الإمارات": [
+    "الإمارات",
+    "الامارات",
+    "الإمارات العربية المتحدة",
+    "الامارات العربية المتحدة",
+    "uae",
+    "u.a.e",
+    "united arab emirates",
+    "دبي",
+    "dubai",
+    "أبو ظبي",
+    "ابو ظبي",
+    "abu dhabi",
+    "abudhabi",
+    "الشارقة",
+    "sharjah",
+    "عجمان",
+    "ajman",
+    "رأس الخيمة",
+    "راس الخيمة",
+    "ras al khaimah",
+    "rak",
+    "الفجيرة",
+    "fujairah",
+    "أم القيوين",
+    "ام القيوين",
+    "umm al quwain",
+    "uae coast",
+    "سواحل الإمارات",
+  ],
+  "السعودية": ["السعودية", "المملكة العربية السعودية", "saudi arabia", "saudi", "ksa", "riyadh", "jeddah"],
+  "قطر": ["قطر", "qatar", "doha", "الدوحة"],
+  "الكويت": ["الكويت", "kuwait", "kuwaiti", "كويتي", "الكويتي", "مطار الكويت", "kuwait airport"],
+  "البحرين": ["البحرين", "bahrain", "المنامة", "manama"],
+  "عمان": ["عمان", "oman", "مسقط", "muscat"],
+};
+
+const FATALITY_COUNT_PATTERNS = [
+  /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:قتيل(?:اً|ا)?|قتلى|وفيات|وفاة|ضحايا|مصرع|استشهاد|متوف(?:ى|ين|ون)?|killed|dead|deaths?|fatalit(?:y|ies))/giu,
+  /(?:مقتل|قتل|وفاة|وفيات|ضحايا|مصرع|استشهاد|متوف(?:ى|ين|ون)?)\s*(?:[:\-–]?\s*)?([0-9٠-٩][0-9٠-٩.,]*)/giu,
+  /(?:killed|dead|deaths?|fatalit(?:y|ies))\s*(?:[:\-–]?\s*)?([0-9٠-٩][0-9٠-٩.,]*)/giu,
+];
+
+const INJURY_COUNT_PATTERNS = [
+  /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:مصاب(?:اً|ا)?|مصابين|إصابات|اصابات|إصابة|اصابة|جرحى|جريح(?:اً|ا)?|injured|injuries|wounded)/giu,
+  /(?:إصابات|اصابات|إصابة|اصابة|مصاب(?:ين)?|جرحى|جريح(?:ين)?)\s*(?:[:\-–]?\s*)?([0-9٠-٩][0-9٠-٩.,]*)/giu,
+  /(?:injured|injuries|wounded)\s*(?:[:\-–]?\s*)?([0-9٠-٩][0-9٠-٩.,]*)/giu,
+];
+
+const FATALITY_ZERO_PATTERNS = [
+  /(?:لا توجد|لا يوجد)\s+(?:أي\s+)?(?:وفيات|قتلى|ضحايا|خسائر بشرية)/iu,
+  /(?:no|zero|without)\s+(?:confirmed\s+)?(?:deaths?|fatalit(?:y|ies)|killed|dead)/iu,
+];
+
+const INJURY_ZERO_PATTERNS = [
+  /(?:لا توجد|لا يوجد)\s+(?:أي\s+)?(?:إصابات|اصابات|جرحى|مصابين)/iu,
+  /(?:no|zero|without)\s+(?:confirmed\s+)?(?:injuries|injured|wounded)/iu,
+];
+
+const FATALITY_SIGNAL_PATTERN = /(?:قتيل|قتلى|وفيات|وفاة|ضحايا|مصرع|استشهاد|متوف(?:ى|ين|ون)?|killed|dead|deaths?|fatalit(?:y|ies))/iu;
+const INJURY_SIGNAL_PATTERN = /(?:مصاب(?:اً|ا)?|مصابين|إصابات|اصابات|إصابة|اصابة|جرحى|جريح(?:اً|ا)?|injured|injuries|wounded)/iu;
+
+const EN_NUMBER_WORDS = {
+  zero: "0",
+  one: "1",
+  two: "2",
+  three: "3",
+  four: "4",
+  five: "5",
+  six: "6",
+  seven: "7",
+  eight: "8",
+  nine: "9",
+  ten: "10",
+  eleven: "11",
+  twelve: "12",
+};
+
+function normalizeDateInputValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "";
+}
+
+function resolveAnalysisDateRange(workspace) {
+  const rawFrom = normalizeDateInputValue(workspace?.analysisDateFrom);
+  if (!rawFrom) {
+    return {
+      hasRange: false,
+      from: "",
+      fromIso: "",
+      fromDate: null,
+    };
+  }
+  const from = rawFrom;
+  const fromIso = `${from}T00:00:00+04:00`;
+  const fromDate = parsePossiblyDate(fromIso);
+  return {
+    hasRange: true,
+    from,
+    fromIso,
+    fromDate,
+  };
+}
+
+function formatArabicDate(value) {
+  const normalized = normalizeDateInputValue(value);
+  if (!normalized) return "غير محدد";
+  const parsed = parsePossiblyDate(`${normalized}T00:00:00+04:00`);
+  if (!parsed) return normalized;
+  return parsed.toLocaleDateString("ar-AE", { timeZone: "Asia/Dubai" });
+}
+
+function analysisDateRangeLabel(workspace) {
+  const range = resolveAnalysisDateRange(workspace);
+  if (!range.hasRange) return "ضمن كامل البيانات المتاحة";
+  return `من ${formatArabicDate(range.from)} حتى الآن`;
+}
+
+function eventDateForRange(row) {
+  return parsePossiblyDate(row?.event_time || row?.created_at || null);
+}
+
+function eventInsideRange(row, range) {
+  if (!range?.hasRange) return true;
+  const timestamp = eventDateForRange(row);
+  if (!timestamp || !range.fromDate) return false;
+  const ms = timestamp.getTime();
+  return ms >= range.fromDate.getTime();
+}
+
+function normalizeDigits(value) {
+  return String(value || "").replace(/[٠-٩]/g, (digit) => ARABIC_INDIC_DIGITS[digit] || digit);
+}
+
+function normalizeNumericText(value) {
+  let text = normalizeDigits(value).toLowerCase();
+  for (const [word, numeric] of Object.entries(EN_NUMBER_WORDS)) {
+    text = text.replace(new RegExp(`\\b${word}\\b`, "g"), numeric);
+  }
+  return text;
+}
+
+function parseLocalizedInteger(value, options = {}) {
+  const maxDigits = Number(options.maxDigits ?? 9);
+  const maxValue = Number(options.maxValue ?? Number.MAX_SAFE_INTEGER);
+  const minValue = Number(options.minValue ?? 0);
+  const normalized = normalizeDigits(value).replace(/[^\d]/g, "");
+  if (!normalized) return null;
+  if (Number.isFinite(maxDigits) && maxDigits > 0 && normalized.length > maxDigits) return null;
+  const parsed = Number.parseInt(normalized, 10);
+  if (!Number.isFinite(parsed)) return null;
+  if (parsed < minValue) return null;
+  if (Number.isFinite(maxValue) && parsed > maxValue) return null;
+  return parsed;
+}
+
+function parseLooseNumber(value) {
+  const normalized = normalizeNumericText(value).replace(/[^0-9.-]/g, "");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+}
+
+function parseLooseBoolean(value) {
+  const raw = cleanText(value).toLowerCase();
+  if (!raw) return null;
+  if (["true", "1", "yes", "y"].includes(raw)) return true;
+  if (["false", "0", "no", "n"].includes(raw)) return false;
+  return null;
+}
+
+function normalizeThreatValue(value) {
+  const raw = cleanText(value).trim();
+  if (!raw) return "غير معلن";
+  const lower = raw.toLowerCase();
+  if (lower === "unknown") return "غير معلن";
+  if (lower === "some") return "بعض";
+  if (raw === "-") return "-";
+  return raw;
+}
+
+function classifyFlightType(text) {
+  const source = cleanText(text).toLowerCase();
+  if (/(cargo|freighter|air\s*cargo|شحن)/.test(source)) return "شحن";
+  if (/(military|air force|fighter|عسكري|حربي)/.test(source)) return "عسكري";
+  if (/(passenger|commercial|airline|ركاب|مدني)/.test(source)) return "ركاب";
+  return "غير محدد";
+}
+
+function classifyShipType(text) {
+  const source = cleanText(text).toLowerCase();
+  if (/(tanker|ناقلة|oil\s*tanker)/.test(source)) return "ناقلة";
+  if (/(container|حاويات)/.test(source)) return "حاويات";
+  if (/(bulk|cargo|بضائع)/.test(source)) return "بضائع عامة";
+  if (/(fishing|صيد)/.test(source)) return "صيد";
+  if (/(naval|warship|military|عسكري|حربي)/.test(source)) return "حربي";
+  return "غير محدد";
+}
+
+function classifyCargoType(text) {
+  const source = cleanText(text).toLowerCase();
+  if (/(food|grain|wheat|rice|flour|غذاء|قمح|أرز|طحين|مواد غذائية)/.test(source)) return "غذاء";
+  if (/(oil|crude|lng|gas|fuel|نفط|غاز|وقود)/.test(source)) return "طاقة";
+  if (/(container|حاويات)/.test(source)) return "حاويات";
+  if (/(aid|humanitarian|مساعدات)/.test(source)) return "مساعدات";
+  return "غير محدد";
+}
+
+function summarizeCounts(values) {
+  const out = {};
+  for (const value of values) {
+    const key = cleanText(value) || "غير محدد";
+    out[key] = (out[key] || 0) + 1;
+  }
+  return out;
+}
+
+function extractSignalMaxFromText(text, patterns, parseOptions = {}) {
+  const source = normalizeNumericText(text || "");
+  if (!source) return null;
+  let max = null;
+  for (const pattern of patterns) {
+    let match = pattern.exec(source);
+    while (match) {
+      const value = parseLocalizedInteger(match[1], parseOptions);
+      if (value != null) max = max == null ? value : Math.max(max, value);
+      match = pattern.exec(source);
+    }
+    pattern.lastIndex = 0;
+  }
+  return max;
+}
+
+function hasSignalMention(text, mentionPatterns = []) {
+  const source = normalizeNumericText(text || "");
+  if (!source) return false;
+  for (const pattern of mentionPatterns) {
+    pattern.lastIndex = 0;
+    if (pattern.test(source)) return true;
+  }
+  return false;
+}
+
+function opsTypeIcon(type) {
+  if (type === "air" || type === "air-intel") return "✈";
+  if (type === "marine" || type === "marine-intel") return "⛴";
+  if (type === "threat" || type === "threat-intel") return "🚀";
+  return "ℹ";
+}
+
+function toArabicOperationalAssessment(value, severity) {
+  const raw = cleanText(value);
+  if (!raw) return `تقييم آلي: ${severityMeaning(severity)} ويحتاج متابعة تشغيلية مستمرة.`;
+  if (/[\u0600-\u06FF]/.test(raw)) return raw;
+  const lower = raw.toLowerCase();
+  if (/(high[\s-]?priority|critical|urgent)/.test(lower)) {
+    return "تقييم آلي: تطور عالي الأولوية وقد يسبب أثرًا تشغيليًا إقليميًا.";
+  }
+  if (/(medium|moderate|watch)/.test(lower)) {
+    return "تقييم آلي: تطور متوسط ويستلزم مراقبة مستمرة للتغيرات.";
+  }
+  if (/(low|minor|limited)/.test(lower)) {
+    return "تقييم آلي: تأثير محدود حاليًا مع استمرار الرصد.";
+  }
+  return "تقييم آلي: الحدث ذو دلالة تشغيلية ويحتاج تحققًا من نطاق التأثير.";
+}
+
+function inferOpsGeoHint(text) {
+  const source = cleanText(text).toLowerCase();
+  if (!source) return null;
+  for (const zone of maritimeZoneDefs) {
+    if (zone.markers.some((marker) => source.includes(marker.toLowerCase()))) {
+      return { lat: zone.lat, lon: zone.lon, label: zone.label };
+    }
+  }
+  for (const country of threatCountryDefs) {
+    if (country.markers.some((marker) => source.includes(marker.toLowerCase()))) {
+      return { lat: country.lat, lon: country.lon, label: country.country_ar };
+    }
+  }
+  return null;
+}
+
+function isMarineIntelLike(row) {
+  if (!row || row.source_type === "marine") return false;
+  const text = eventText(row);
+  return /(marine|maritime|ship|vessel|tanker|cargo ship|lng|imo|ملاحة|بحري|سفينة|ناقلة|شحنة|ميناء|منظمة البحرية)/.test(text);
+}
+
+function isFlightIntelLike(row) {
+  if (!row || row.source_type === "flight") return false;
+  const text = eventText(row);
+  return /(flight|aircraft|airport|aviation|airspace|takeoff|landing|طيران|رحلة|مطار|مجال جوي|إقلاع|هبوط)/.test(text);
+}
+
+function isThreatIntelLike(row) {
+  if (!row) return false;
+  const text = eventText(row);
+  return /(missile|ballistic|cruise|drone|uav|intercept|air defense|صاروخ|بالستي|كروز|مسي(?:رة|رات)|درون|اعتراض|دفاع جوي)/.test(
+    text
+  );
+}
+
+function inferThreatSignalKind(text) {
+  const source = normalizeNumericText(text || "");
+  if (!source) return "threat";
+  if (/drone|uav|مسي(?:رة|رات)|درون/.test(source)) return "drones";
+  if (/cruise|كروز|مجنح/.test(source)) return "cruise";
+  if (/ballistic|بالستي|missile|صاروخ|intercept|اعتراض/.test(source)) return "ballistic";
+  return "threat";
+}
+
+function isCumulativeThreatStatement(text) {
+  const source = normalizeNumericText(text || "");
+  if (!source) return false;
+  return /(?:since\s+(?:start|beginning)|so\s*far|to\s*date|cumulative|total|tally|overall|from\s+start|from\s+the\s+start|منذ\s+(?:بدء|بداية)|حتى\s+الآن|إجمالي|اجمالي|حصيلة|من\s+أصل|من\s+اصل|منذ\s+بدء\s+الهجمات|منذ\s+بداية\s+الهجمات)/iu.test(
+    source
+  );
+}
+
+function extractShipDisplayName(row) {
+  const detailsMap = new Map(parseDetailsTokens(row?.details));
+  const fromDetails =
+    detailsMap.get("ship_name") ||
+    detailsMap.get("vessel") ||
+    detailsMap.get("name") ||
+    detailsMap.get("mmsi");
+  if (fromDetails) return cleanText(fromDetails);
+  const title = cleanText(row?.title || "");
+  const vesselMatch = title.match(/(?:ناقلة|سفينة|ship|vessel)\s+([^|،,:]{2,90})/iu);
+  if (vesselMatch?.[1]) return cleanText(vesselMatch[1]);
+  return normalizeStoryTitle(title) || `سفينة-${row?.id || "غير معروف"}`;
+}
+
+function sourceLooksOfficialName(value) {
+  const name = cleanText(value).toLowerCase();
+  if (!name) return false;
+  return officialSourceNameMarkers.some((marker) => name.includes(marker));
+}
+
+function sourceHasOfficialAuthor(details) {
+  const tokens = new Map(parseDetailsTokens(details));
+  const authorRaw = cleanText(tokens.get("author")).replace(/^@/, "").toLowerCase();
+  if (authorRaw && officialAgencyXHandles.has(authorRaw)) return true;
+  const detailsText = cleanText(details).toLowerCase();
+  return [...officialAgencyXHandles].some((handle) => detailsText.includes(`@${handle}`));
+}
+
+function sourceHostLooksOfficial(urlValue) {
+  if (!urlValue) return false;
+  try {
+    const host = new URL(String(urlValue)).hostname.replace(/^www\./, "").toLowerCase();
+    return (
+      host.endsWith("wam.ae") ||
+      host.endsWith("spa.gov.sa") ||
+      host.endsWith("qna.org.qa") ||
+      host.endsWith("moi.gov.ae") ||
+      host.endsWith("opensky-network.org") ||
+      host.endsWith("api.jsoncargo.com") ||
+      host.endsWith("jsoncargo.com") ||
+      host.endsWith("marinetraffic.com") ||
+      host.endsWith("x.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function videoEmbedCandidates(source) {
+  if (!source) return [];
+  const explicit = Array.isArray(source.embedCandidates) ? source.embedCandidates : [];
+  const list = [...explicit, source.embedUrl].map((value) => cleanText(value)).filter(Boolean);
+  return [...new Set(list)];
+}
+
+function isOfficialOpsEvidence(row) {
+  if (!row) return false;
+  if (sourceLooksOfficialName(row.source_name)) return true;
+  if (sourceHostLooksOfficial(row.url)) return true;
+  if (row.source_type === "social" && sourceHasOfficialAuthor(row.details)) return true;
+  return false;
+}
+
+function buildCountryMarkers(country) {
+  const normalized = cleanText(country).toLowerCase();
+  if (!normalized) return [];
+  let aliases = [];
+  for (const [key, values] of Object.entries(COUNTRY_ALIAS_MAP)) {
+    const keyNormalized = cleanText(key).toLowerCase();
+    const valueNormalized = values.map((value) => cleanText(value).toLowerCase());
+    if (normalized === keyNormalized || valueNormalized.includes(normalized)) {
+      aliases = [...values];
+      break;
+    }
+  }
+  return [...new Set([normalized, ...aliases.map((value) => value.toLowerCase())])];
+}
+
+function eventMatchesCountry(row, markers) {
+  if (!markers.length) return true;
+  const text = eventText(row);
+  return markers.some((marker) => marker && text.includes(marker));
+}
+
+function findFatalityCounts(text) {
+  const source = normalizeNumericText(text);
+  const values = [];
+  for (const pattern of FATALITY_COUNT_PATTERNS) {
+    let match = pattern.exec(source);
+    while (match) {
+      const count = parseLocalizedInteger(match[1]);
+      if (count != null) values.push(count);
+      match = pattern.exec(source);
+    }
+    pattern.lastIndex = 0;
+  }
+  return values;
+}
+
+function hasExplicitZeroFatalities(text) {
+  const source = normalizeNumericText(text);
+  return FATALITY_ZERO_PATTERNS.some((pattern) => pattern.test(source));
+}
+
+function findInjuryCounts(text) {
+  const source = normalizeNumericText(text);
+  const values = [];
+  for (const pattern of INJURY_COUNT_PATTERNS) {
+    let match = pattern.exec(source);
+    while (match) {
+      const count = parseLocalizedInteger(match[1]);
+      if (count != null) values.push(count);
+      match = pattern.exec(source);
+    }
+    pattern.lastIndex = 0;
+  }
+  return values;
+}
+
+function hasExplicitZeroInjuries(text) {
+  const source = normalizeNumericText(text);
+  return INJURY_ZERO_PATTERNS.some((pattern) => pattern.test(source));
+}
+
+function sentenceChunks(text) {
+  return normalizeNumericText(text || "")
+    .split(/[\n\r.!?؟؛]+/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+}
+
+function chunkMatchesCountry(chunk, markers) {
+  if (!markers?.length) return true;
+  return markers.some((marker) => marker && chunk.includes(marker));
+}
+
+function extractScopedSignalMax(text, markers, countPatterns, signalPattern, parseOptions = {}) {
+  const chunks = sentenceChunks(text);
+  let max = null;
+  for (const chunk of chunks) {
+    signalPattern.lastIndex = 0;
+    if (!signalPattern.test(chunk)) continue;
+    if (!chunkMatchesCountry(chunk, markers)) continue;
+    const value = extractSignalMaxFromText(chunk, countPatterns, parseOptions);
+    if (value != null) max = max == null ? value : Math.max(max, value);
+  }
+  return max;
+}
+
+function hasScopedExplicitZero(text, markers, zeroPatterns) {
+  const chunks = sentenceChunks(text);
+  for (const chunk of chunks) {
+    if (!chunkMatchesCountry(chunk, markers)) continue;
+    for (const pattern of zeroPatterns) {
+      pattern.lastIndex = 0;
+      if (pattern.test(chunk)) return true;
+    }
+  }
+  return false;
+}
+
+function countryAffinity(row, markers) {
+  if (!markers?.length) return { any: true, strong: true };
+  const detailsMap = new Map(parseDetailsTokens(row?.details));
+  const locationText = cleanText(
+    [
+      row?.location,
+      detailsMap.get("country"),
+      detailsMap.get("country_iso"),
+      detailsMap.get("country_ar"),
+      detailsMap.get("from_country"),
+      detailsMap.get("to_country"),
+      detailsMap.get("from_port"),
+      detailsMap.get("to_port"),
+      detailsMap.get("city"),
+      detailsMap.get("location"),
+    ]
+      .filter(Boolean)
+      .join(" ")
+  ).toLowerCase();
+  const headlineText = cleanText([row?.title, row?.summary].filter(Boolean).join(" ")).toLowerCase();
+  const fullText = eventText(row);
+  const inLocation = markers.some((marker) => marker && locationText.includes(marker));
+  const inHeadline = markers.some((marker) => marker && headlineText.includes(marker));
+  const inAnyText = markers.some((marker) => marker && fullText.includes(marker));
+  return {
+    any: inLocation || inHeadline || inAnyText,
+    strong: inLocation || inHeadline,
+  };
+}
+
+function deriveFatalityStats(events, workspace) {
+  const range = resolveAnalysisDateRange(workspace);
+  const markers = buildCountryMarkers(workspace?.country);
+  const perStoryFatalityMax = new Map();
+  const perStoryInjuryMax = new Map();
+  let explicitFatalityZero = false;
+  let explicitInjuryZero = false;
+  let scanned = 0;
+  for (const row of events || []) {
+    if (!eventInsideRange(row, range)) continue;
+    const affinity = countryAffinity(row, markers);
+    if (!affinity.any) continue;
+    scanned += 1;
+    const text = [row?.title, row?.summary, row?.details, row?.ai_assessment].filter(Boolean).join(" ");
+    if (!text) continue;
+    const storyKey = normalizeStoryTitle(row?.title) || `event-${row?.id || scanned}`;
+    const scopedFatality = extractScopedSignalMax(text, markers, FATALITY_COUNT_PATTERNS, FATALITY_SIGNAL_PATTERN);
+    const scopedInjury = extractScopedSignalMax(text, markers, INJURY_COUNT_PATTERNS, INJURY_SIGNAL_PATTERN);
+    const fallbackFatality = affinity.strong || !markers.length ? extractSignalMaxFromText(text, FATALITY_COUNT_PATTERNS) : null;
+    const fallbackInjury = affinity.strong || !markers.length ? extractSignalMaxFromText(text, INJURY_COUNT_PATTERNS) : null;
+    const rowFatalityMax = scopedFatality ?? fallbackFatality;
+    const rowInjuryMax = scopedInjury ?? fallbackInjury;
+
+    if (
+      hasScopedExplicitZero(text, markers, FATALITY_ZERO_PATTERNS) ||
+      ((affinity.strong || !markers.length) && hasExplicitZeroFatalities(text))
+    ) {
+      explicitFatalityZero = true;
+    }
+    if (
+      hasScopedExplicitZero(text, markers, INJURY_ZERO_PATTERNS) ||
+      ((affinity.strong || !markers.length) && hasExplicitZeroInjuries(text))
+    ) {
+      explicitInjuryZero = true;
+    }
+
+    if (rowFatalityMax != null) {
+      const current = perStoryFatalityMax.get(storyKey) || 0;
+      if (rowFatalityMax > current) perStoryFatalityMax.set(storyKey, rowFatalityMax);
+    }
+    if (rowInjuryMax != null) {
+      const current = perStoryInjuryMax.get(storyKey) || 0;
+      if (rowInjuryMax > current) perStoryInjuryMax.set(storyKey, rowInjuryMax);
+    }
+  }
+  const confirmed = perStoryFatalityMax.size > 0 ? Math.max(...perStoryFatalityMax.values()) : null;
+  const injured = perStoryInjuryMax.size > 0 ? Math.max(...perStoryInjuryMax.values()) : null;
+  return {
+    confirmed,
+    injured,
+    explicitFatalityZero,
+    explicitInjuryZero,
+    scanned,
+  };
+}
+
+function buildFatalityAutoLine(workspace, fatalityStats) {
+  const safeCountry = String(workspace?.country || "الدولة المستهدفة").trim() || "الدولة المستهدفة";
+  const rangeLabel = analysisDateRangeLabel(workspace);
+  if (fatalityStats?.confirmed != null) {
+    return `حصيلة الوفيات المؤكدة في ${safeCountry} ${rangeLabel}: ${fatalityStats.confirmed} (مستخرجة آلياً من المصادر).`;
+  }
+  if (fatalityStats?.explicitFatalityZero) {
+    return `لا توجد وفيات مؤكدة في ${safeCountry} ${rangeLabel} وفق المصادر المتاحة.`;
+  }
+  return `حصيلة الوفيات المؤكدة في ${safeCountry} ${rangeLabel}: غير متاحة في المصادر الحالية.`;
+}
+
+function buildInjuryAutoLine(workspace, fatalityStats) {
+  const safeCountry = String(workspace?.country || "الدولة المستهدفة").trim() || "الدولة المستهدفة";
+  const rangeLabel = analysisDateRangeLabel(workspace);
+  if (fatalityStats?.injured != null) {
+    return `حصيلة الإصابات المؤكدة في ${safeCountry} ${rangeLabel}: ${fatalityStats.injured} (مستخرجة آلياً من المصادر).`;
+  }
+  if (fatalityStats?.explicitInjuryZero) {
+    return `لا توجد إصابات مؤكدة في ${safeCountry} ${rangeLabel} وفق المصادر المتاحة.`;
+  }
+  return `حصيلة الإصابات المؤكدة في ${safeCountry} ${rangeLabel}: غير متاحة في المصادر الحالية.`;
+}
+
+function buildTransportIntelSummary(rows, workspace) {
+  const markers = buildCountryMarkers(workspace?.country);
+  const scopedRows = (rows || []).filter((row) => rowMatchesCountryMarkersForOps(row, markers));
+  const marineRows = scopedRows.filter((row) => row?.source_type === "marine");
+  const flightRows = scopedRows.filter((row) => row?.source_type === "flight");
+
+  const shipRouteCounter = new Map();
+  const flightRouteCounter = new Map();
+  const shipSamples = [];
+  const flightSamples = [];
+
+  for (const row of marineRows) {
+    const transport = parseTransportContext(row);
+    const routeKey = `${routeArrowSummary(transport.fromCountry, transport.toCountry)} | ${routeArrowSummary(
+      transport.fromPort,
+      transport.toPort
+    )} | نوع=${transport.vehicleType || "غير محدد"}`;
+    shipRouteCounter.set(routeKey, (shipRouteCounter.get(routeKey) || 0) + 1);
+    if (shipSamples.length < 10) {
+      shipSamples.push(
+        `- سفينة ${transport.shipName || normalizeStoryTitle(row.title) || row.id} | الدول: ${routeArrowSummary(
+          transport.fromCountry,
+          transport.toCountry
+        )} | الموانئ: ${routeArrowSummary(transport.fromPort, transport.toPort)} | النوع: ${
+          transport.vehicleType || "غير محدد"
+        } | المصدر: ${cleanText(row.source_name)} #${row.id}`
+      );
+    }
+  }
+
+  for (const row of flightRows) {
+    const transport = parseTransportContext(row);
+    const routeKey = `${routeArrowSummary(transport.fromCountry, transport.toCountry)} | ${routeArrowSummary(
+      transport.fromPort,
+      transport.toPort
+    )} | نوع=${transport.vehicleType || "غير محدد"}`;
+    flightRouteCounter.set(routeKey, (flightRouteCounter.get(routeKey) || 0) + 1);
+    if (flightSamples.length < 10) {
+      flightSamples.push(
+        `- رحلة ${cleanText(new Map(parseDetailsTokens(row.details)).get("callsign") || normalizeStoryTitle(row.title) || row.id)} | الدول: ${routeArrowSummary(
+          transport.fromCountry,
+          transport.toCountry
+        )} | المطارات: ${routeArrowSummary(transport.fromPort, transport.toPort)} | نوع الطائرة: ${
+          transport.vehicleType || "غير محدد"
+        } | المصدر: ${cleanText(row.source_name)} #${row.id}`
+      );
+    }
+  }
+
+  const sortedShipRoutes = [...shipRouteCounter.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const sortedFlightRoutes = [...flightRouteCounter.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const lines = [
+    `ملخص نقل مهيكل (ضمن نطاق الدولة): سفن=${marineRows.length} | رحلات=${flightRows.length}.`,
+    "المسارات البحرية الأكثر تكراراً:",
+    ...(sortedShipRoutes.length > 0
+      ? sortedShipRoutes.map(([route, count]) => `- ${route} | عدد الإشارات: ${count}`)
+      : ["- لا توجد مسارات بحرية كافية ضمن النطاق."]),
+    "عينات سفن تفصيلية:",
+    ...(shipSamples.length > 0 ? shipSamples : ["- لا توجد عينات سفن ضمن النطاق."]),
+    "المسارات الجوية الأكثر تكراراً:",
+    ...(sortedFlightRoutes.length > 0
+      ? sortedFlightRoutes.map(([route, count]) => `- ${route} | عدد الإشارات: ${count}`)
+      : ["- لا توجد مسارات جوية كافية ضمن النطاق."]),
+    "عينات رحلات تفصيلية:",
+    ...(flightSamples.length > 0 ? flightSamples : ["- لا توجد عينات رحلات ضمن النطاق."]),
+  ];
+  return lines.join("\n").slice(0, 2500);
+}
+
+function buildOperationalAnalysisTemplate({ focus, country, topic, userRequest, analysisDateFrom, fatalityStats, transportIntel }) {
   const safeFocus = String(focus || "").trim() || "تصعيد إقليمي";
   const safeCountry = String(country || "").trim() || "الدولة المحددة";
   const safeTopic = String(topic || "").trim() || safeFocus;
   const safeRequest = String(userRequest || "").trim() || "تحليل تشغيلي متكامل";
+  const safeTransportIntel = String(transportIntel || "").trim();
+  const scopeFrom = normalizeDateInputValue(analysisDateFrom);
+  const fatalityLine = buildFatalityAutoLine({ country: safeCountry, analysisDateFrom }, fatalityStats);
+  const injuryLine = buildInjuryAutoLine({ country: safeCountry, analysisDateFrom }, fatalityStats);
+  const rangeLine = `فترة التحليل: ${analysisDateRangeLabel({ analysisDateFrom })}.`;
   return [
+    `scope_country: ${safeCountry}`,
+    `scope_topic: ${safeTopic}`,
+    `scope_from: ${scopeFrom || "none"}`,
     `التركيز: ${safeFocus}`,
     `الدولة المستهدفة: ${safeCountry}`,
     `الموضوع: ${safeTopic}`,
+    rangeLine,
     `طلب المستخدم: ${safeRequest}`,
     "أنت محلل عمليات. قدّم تحليلًا تنفيذيًا منظمًا بالعربية يشمل النقاط التالية حصراً.",
     "استخدم العناوين التالية حرفياً وبالترتيب حتى يمكن عرضها في صناديق تشغيلية:",
@@ -509,14 +1548,25 @@ function buildOperationalAnalysisTemplate({ focus, country, topic, userRequest }
     "[SHORT_TERM_PREDICTION]",
     "وتحت كل عنوان اكتب نقاطاً موجزة عملية.",
     "مهم: اكتب المخرجات بالعربية فقط بدون كلمات أو عناوين إنجليزية.",
+    "مهم جداً: استخدم كل الأحداث المرفقة من جميع المصادر (رسمية/إعلامية/اجتماعية) ولا تتجاهل أي مصدر.",
     "المحتوى المطلوب تحت العناوين:",
     "1) ملخص الوضع الحالي مقابل الوضع المرجعي عند بداية الموضوع.",
     "2) معلومات لوجستية فعلية للدولة المستهدفة (المطارات/الموانئ/الطرق/سلاسل الإمداد/الطاقة) وتأثير الحدث عليها.",
-    "3) الأضرار والخسائر: بشرية/مادية/تشغيلية مع تمييز المؤكد من غير المؤكد.",
+    "3) الأضرار والخسائر: بشرية/مادية/تشغيلية مع تمييز المؤكد من غير المؤكد وذكر درجة الثقة لكل رقم.",
+    `3-أ) ضمن قسم [DAMAGES_LOSSES] أضف سطرين إلزاميين بصيغة واضحة: ${fatalityLine} ثم ${injuryLine}`,
+    "3-ب) إذا وُجد تضارب أرقام بين المصادر: اذكر الرقم الرسمي الأحدث كـ(مؤكد) ثم اذكر الأرقام الأخرى كـ(غير مؤكدة) مع سبب مختصر.",
+    "3-ج) لا تعرض المراجع/روابط المصادر داخل النص النهائي المخصص للمستخدم؛ استخدمها فقط داخلياً في الاستدلال.",
     "4) تقدير التكلفة الاقتصادية المباشرة وغير المباشرة إن توفرت المؤشرات.",
     "5) إجراءات التخفيف والاستجابة التي تم اتخاذها فعلياً منذ بداية الحدث.",
+    "5-أ) داخل [MITIGATION] اكتب قسمين واضحين: (إجراءات حالية) و(إجراءات تنبؤية خلال 6-24 ساعة).",
+    "5-ب) كل نقطة في [MITIGATION] يجب أن ترتبط بدليل محدد من الأحداث المرفقة، دون إظهار سطر مصدر للمستخدم.",
+    "5-ج) امنع التكرار: لا تعِد نفس الصياغة العامة بين التحليلات؛ عدّل الإجراءات وفق الدولة/المجال/الأدلة الأحدث.",
     "6) فجوات الاستجابة الحالية وما الذي يجب متابعته خلال 6/24/72 ساعة.",
     "7) توقع تشغيلي قصير المدى مع سيناريو رئيسي وبديل ونسبة ثقة.",
+    "8) أدرج تحليل النقل (بحري/جوي) داخل الأقسام المناسبة مع توضيح: من أي دولة إلى أي دولة، ومن أي ميناء/مطار إلى أي ميناء/مطار، ونوع السفينة/الرحلة، وتأثيره التشغيلي.",
+    ...(safeTransportIntel
+      ? ["", "[TRANSPORT_INTEL]", safeTransportIntel, "استخدم الملحق أعلاه كأدلة رقمية مساعدة ولا تهمله."]
+      : []),
     "اعرض الناتج في عناوين واضحة ونقاط عملية قابلة للتنفيذ."
   ].join("\n");
 }
@@ -555,6 +1605,185 @@ function parseOperationalSections(text) {
     out[key] = raw.slice(start, end).trim();
   }
   return out;
+}
+
+function enrichDamagesLossesSection(text, workspace, fatalityStats) {
+  const country = String(workspace?.country || "الدولة المستهدفة").trim();
+  const fatalityLine = buildFatalityAutoLine({ country, analysisDateFrom: workspace?.analysisDateFrom }, fatalityStats);
+  const injuryLine = buildInjuryAutoLine({ country, analysisDateFrom: workspace?.analysisDateFrom }, fatalityStats);
+  const autoLines = `${fatalityLine}\n${injuryLine}`;
+  const baseText = String(text || "").trim();
+  if (!baseText) return autoLines;
+  const lines = baseText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/حصيلة\s+الوفيات\s+المؤكدة|لا\s+توجد\s+وفيات\s+مؤكدة|حصيلة\s+الإصابات\s+المؤكدة|لا\s+توجد\s+إصابات\s+مؤكدة/i.test(line));
+  const cleaned = lines.join("\n").trim();
+  return cleaned ? `${autoLines}\n${cleaned}` : autoLines;
+}
+
+function parseNumericIdList(value) {
+  const ids = String(value || "")
+    .split(/[\s,]+/)
+    .map((token) => Number.parseInt(token, 10))
+    .filter((num) => Number.isInteger(num) && num > 0);
+  return [...new Set(ids)];
+}
+
+function mitigationLaneLabel(lane) {
+  if (lane === "air") return "جوي";
+  if (lane === "marine") return "بحري";
+  if (lane === "cyber") return "سيبراني";
+  return "جيوسياسي";
+}
+
+function compactEvidenceTitle(row) {
+  const title = cleanText(row?.title || row?.summary || "حدث تشغيلي");
+  if (!title) return "حدث تشغيلي";
+  return title.length > 110 ? `${title.slice(0, 110)}...` : title;
+}
+
+function mitigationCurrentActionByLane(lane, country, row) {
+  const trigger = compactEvidenceTitle(row);
+  if (lane === "air") {
+    return `إجراء مرصود في الطيران داخل ${country}: تم رفع جاهزية المطارات والمجال الجوي وتحديث تعليمات التشغيل بناءً على التطور التالي: ${trigger}.`;
+  }
+  if (lane === "marine") {
+    return `إجراء مرصود في الملاحة داخل ${country}: تم تشديد رقابة الموانئ ومسارات العبور وإعادة توجيه المسارات عالية المخاطر وفق التطور التالي: ${trigger}.`;
+  }
+  if (lane === "cyber") {
+    return `إجراء مرصود في الأمن السيبراني داخل ${country}: تم رفع المراقبة الأمنية وعزل المؤشرات المشبوهة وتسريع التحديثات الوقائية بناءً على التطور التالي: ${trigger}.`;
+  }
+  return `إجراء مرصود أمني/ميداني في ${country}: تم رفع الجاهزية والتنسيق بين الجهات التشغيلية استنادًا إلى التطور التالي: ${trigger}.`;
+}
+
+function mitigationForecastActionByLane(lane, country) {
+  if (lane === "air") {
+    return `خلال 6-24 ساعة: إبقاء خطط تشغيل بديلة للمطارات والرحلات الحساسة في ${country} مع مراجعة دورية كل ساعة للمجال الجوي.`;
+  }
+  if (lane === "marine") {
+    return `خلال 6-24 ساعة: توسيع نقاط المراقبة البحرية حول الممرات الحيوية في ${country} وتحديث مسارات السفن وفق تغير المخاطر.`;
+  }
+  if (lane === "cyber") {
+    return `خلال 6-24 ساعة: تنفيذ دورة تحقق سيبراني متكررة للأنظمة الحرجة في ${country} مع اختبار استجابة الحوادث وتحديث قواعد الرصد.`;
+  }
+  return `خلال 6-24 ساعة: اعتماد مصفوفة تصعيد مرنة في ${country} تربط مستوى التهديد بإجراءات تشغيلية واضحة قابلة للتنفيذ.`;
+}
+
+function normalizeMitigationLine(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[0-9٠-٩]/g, "#")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sanitizeMitigationBaseLines(lines) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of lines || []) {
+    const line = cleanText(raw);
+    if (!line) continue;
+    if (/^\d+[،,]?$/.test(normalizeDigits(line))) continue;
+    if (/^المصدر\s*[:：]/i.test(line)) continue;
+    if (line.length < 8) continue;
+    const key = normalizeMitigationLine(line);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(line);
+  }
+  return out;
+}
+
+function enrichMitigationSection(text, workspace, ticket, evidenceRows) {
+  const country = cleanText(workspace?.country || "الدولة المستهدفة");
+  const scopedRows = Array.isArray(evidenceRows) ? evidenceRows.slice(0, 4) : [];
+  const baseLines = sanitizeMitigationBaseLines(toBulletLines(String(text || "")));
+
+  const dynamicCurrent = [];
+  const dynamicPredictive = [];
+  const seenDynamic = new Set();
+
+  for (const row of scopedRows) {
+    const lane = eventLane(row);
+    const current = mitigationCurrentActionByLane(lane, country, row);
+    const forecast = mitigationForecastActionByLane(lane, country);
+    const currentKey = normalizeMitigationLine(current);
+    if (!seenDynamic.has(currentKey)) {
+      dynamicCurrent.push(current);
+      seenDynamic.add(currentKey);
+    }
+    const forecastKey = `${lane}|${normalizeMitigationLine(forecast)}`;
+    if (!seenDynamic.has(forecastKey)) {
+      dynamicPredictive.push(forecast);
+      seenDynamic.add(forecastKey);
+    }
+  }
+
+  const dominantLane = scopedRows.length
+    ? mitigationLaneLabel(
+        Object.entries(
+          scopedRows.reduce(
+            (acc, row) => {
+              const lane = eventLane(row);
+              acc[lane] = (acc[lane] || 0) + 1;
+              return acc;
+            },
+            { geo: 0, air: 0, marine: 0, cyber: 0 }
+          )
+        ).sort((a, b) => b[1] - a[1])[0]?.[0] || "geo"
+      )
+    : "جيوسياسي";
+
+  const headerLine = `مجال الإجراءات المسيطر: ${dominantLane}${cleanText(ticket?.focus_query) ? ` | تركيز التذكرة: ${cleanText(ticket.focus_query)}` : ""}.`;
+  const topBase = baseLines.slice(0, 2);
+  const currentLines = dynamicCurrent.length > 0 ? dynamicCurrent : topBase;
+  const predictiveLines =
+    dynamicPredictive.length > 0 ? dynamicPredictive : [mitigationForecastActionByLane("geo", country), mitigationForecastActionByLane("air", country)];
+
+  const lines = [
+    headerLine,
+    "ما تم تنفيذه فعلياً (مستخرج من الأدلة):",
+    ...currentLines.slice(0, 4).map((line) => `- ${line}`),
+    "اقتراحات الذكاء لتعزيز خطة التخفيف (6-24 ساعة):",
+    ...predictiveLines.slice(0, 4).map((line) => `- ${line}`),
+  ];
+  return sanitizePredictionBoxContent(lines.join("\n"));
+}
+
+function buildSpecialistAnalysisBox({ workspace, ticket, evidenceRows }) {
+  const rows = Array.isArray(evidenceRows) ? evidenceRows : [];
+  if (rows.length === 0) {
+    return "لا توجد أدلة كافية داخل نطاق التذكرة لبناء تحليل تخصصي موثوق حالياً. المطلوب: إضافة أحداث مرتبطة بالدولة/الموضوع ثم إعادة التحليل.";
+  }
+
+  const laneCounts = rows.reduce(
+    (acc, row) => {
+      const lane = eventLane(row);
+      acc[lane] = (acc[lane] || 0) + 1;
+      return acc;
+    },
+    { geo: 0, air: 0, marine: 0, cyber: 0 }
+  );
+  const dominantLaneKey = Object.entries(laneCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "geo";
+  const dominantLane = mitigationLaneLabel(dominantLaneKey);
+  const highSeverity = rows.filter((row) => Number(row?.severity || 0) >= 4).length;
+  const country = cleanText(workspace?.country || "الدولة المستهدفة");
+  const horizon = Number(ticket?.horizon_hours || 24);
+
+  const lead = rows[0];
+  const leadTitle = compactEvidenceTitle(lead);
+  const predictiveFocus = mitigationForecastActionByLane(dominantLaneKey, country);
+
+  return sanitizePredictionBoxContent([
+    `تقدير تخصصي (حالي + تنبئي) | الدولة: ${country} | المجال الغالب: ${dominantLane}.`,
+    `المشهد الحالي: ${rows.length} دليل ضمن نطاق التذكرة، منها ${highSeverity} أدلة عالية الشدة.`,
+    `أقوى مؤشر حالي: ${leadTitle}.`,
+    `التفسير التشغيلي الحالي: الأولوية التشغيلية الآن في مسار ${dominantLane} مع ضرورة ربط القرار بالأدلة الأحدث فقط.`,
+    `التقدير التنبئي حتى ${horizon} ساعة: ${predictiveFocus}`,
+    "مؤشرات المراقبة القادمة: تغير الشدة، توسع النطاق الجغرافي، وظهور أدلة مؤكدة جديدة على نفس موضوع التذكرة.",
+  ].join("\n"));
 }
 
 const operationalSectionDefs = [
@@ -606,11 +1835,73 @@ function toReadableBullets(value) {
     .filter(Boolean);
 }
 
+function splitReadableChunks(line) {
+  const value = String(line || "").trim();
+  if (!value) return [];
+  const byPipe = value
+    .split(/\s+\|\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (byPipe.length > 1) return byPipe;
+  if (value.length > 220) {
+    return value
+      .split(/\s[-–]\s(?=(?:Official|X|BBC|CNN|RT|Sky|Al|France|حدث|المصدر|Source|@|https?:\/\/))/i)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  return [value];
+}
+
+function looksLikeSourceLabel(label) {
+  const raw = cleanText(label);
+  if (!raw) return false;
+  const lower = raw.toLowerCase();
+  return (
+    /\[[sS]\d\]/.test(raw) ||
+    lower.includes("@") ||
+    /(official|feed|feeds|agency|news|source|bbc|cnn|rt|sky|al arabiya|france|x|wam|spa|qna|kuna|bna|moi)/.test(lower) ||
+    /(المصدر|وكالة|وزارة|حساب رسمي|رسمي)/.test(raw)
+  );
+}
+
+function toStructuredReadableBullets(value) {
+  const baseItems = toReadableBullets(value);
+  const out = [];
+  for (const item of baseItems) {
+    const chunks = splitReadableChunks(item);
+    for (const chunk of chunks) {
+      const text = cleanText(chunk).replace(/\s+/g, " ").trim();
+      if (!text) continue;
+
+      const labeled = text.match(/^([^:]{2,90})\s*[:：]\s*(.+)$/);
+      if (labeled && looksLikeSourceLabel(labeled[1])) {
+        out.push({ text: labeled[2].trim(), source: labeled[1].trim() });
+        continue;
+      }
+
+      const sourceInline = text.match(/^(.+?)\s*\((?:المصدر|Source)\s*[:：]\s*([^)]+)\)\s*$/i);
+      if (sourceInline) {
+        out.push({ text: sourceInline[1].trim(), source: sourceInline[2].trim() });
+        continue;
+      }
+
+      if (/^https?:\/\//i.test(text) && out.length > 0 && !out[out.length - 1].source) {
+        out[out.length - 1].source = text;
+        continue;
+      }
+
+      out.push({ text, source: "" });
+    }
+  }
+  return out.filter((row) => row.text);
+}
+
 function makePredictionWorkspace(id, index) {
   return {
     id,
     label: `مساحة ${index}`,
     country: "الإمارات",
+    analysisDateFrom: "",
     topic: "التصعيد في الخليج",
     predictionTitle: "توقع تشغيلي",
     predictionFocus: "الحرب في الخليج مع تركيز الإمارات",
@@ -696,17 +1987,150 @@ function normalizeStoryTitle(value) {
   return trimmedSuffix.replace(/\s+/g, " ").trim();
 }
 
+function eventStoryDedupKey(row) {
+  if (!row) return "";
+  const detailsMap = new Map(parseDetailsTokens(row.details));
+  const urlCandidate =
+    normalizeDetectedUrl(row.url) ||
+    normalizeDetectedUrl(detailsMap.get("expanded_url")) ||
+    normalizeDetectedUrl(detailsMap.get("external_url")) ||
+    normalizeDetectedUrl(detailsMap.get("link"));
+  if (urlCandidate) return urlCandidate.toLowerCase();
+  return normalizeStoryTitle(row.title) || `event-${row.id || "na"}`;
+}
+
 function noticeId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function mapEmbedUrl(lat, lon) {
-  const d = 1.5;
-  const minLon = Math.max(-179.9, lon - d);
-  const minLat = Math.max(-85, lat - d);
-  const maxLon = Math.min(179.9, lon + d);
-  const maxLat = Math.min(85, lat + d);
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${minLon}%2C${minLat}%2C${maxLon}%2C${maxLat}&layer=mapnik&marker=${lat}%2C${lon}`;
+function toFiniteCoord(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return num;
+}
+
+function sanitizeLatLon(latValue, lonValue) {
+  const lat = toFiniteCoord(latValue);
+  const lon = toFiniteCoord(lonValue);
+  if (lat == null || lon == null) return null;
+  if (lat < -90 || lat > 90) return null;
+  if (lon < -180 || lon > 180) return null;
+  return { lat, lon };
+}
+
+function normalizeDetectedUrl(raw) {
+  const value = cleanText(raw);
+  if (!value) return "";
+  return value.replace(/[),.;:!?،؛»"'`]+$/u, "");
+}
+
+function extractUrlsFromText(text) {
+  const source = String(text || "");
+  if (!source) return [];
+  const matches = source.match(/https?:\/\/[^\s<>"'`]+/g) || [];
+  const out = [];
+  for (const match of matches) {
+    const normalized = normalizeDetectedUrl(match);
+    if (!normalized || out.includes(normalized)) continue;
+    out.push(normalized);
+  }
+  return out;
+}
+
+function toYouTubeEmbedUrl(urlValue) {
+  if (!urlValue) return "";
+  try {
+    const url = new URL(urlValue);
+    const host = url.hostname.replace(/^www\./, "").toLowerCase();
+    if (host === "youtu.be") {
+      const id = url.pathname.replace("/", "").trim();
+      return id ? `https://www.youtube.com/embed/${id}` : "";
+    }
+    if (!host.includes("youtube.com")) return "";
+    const watchId = url.searchParams.get("v");
+    if (watchId) return `https://www.youtube.com/embed/${watchId}`;
+    const pathMatch = url.pathname.match(/\/(?:embed|shorts|live)\/([^/?#]+)/i);
+    if (pathMatch?.[1]) return `https://www.youtube.com/embed/${pathMatch[1]}`;
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+function toXStatusEmbedUrl(urlValue) {
+  if (!urlValue) return "";
+  try {
+    const url = new URL(urlValue);
+    const host = url.hostname.replace(/^www\./, "").toLowerCase();
+    if (!host.endsWith("x.com") && !host.endsWith("twitter.com")) return "";
+    const match = url.pathname.match(/\/status\/(\d+)/i);
+    const tweetId = match?.[1] || "";
+    if (!tweetId) return "";
+    return `https://platform.twitter.com/embed/Tweet.html?id=${tweetId}&theme=dark&dnt=true`;
+  } catch {
+    return "";
+  }
+}
+
+function isDirectVideoUrl(urlValue) {
+  return /\.(mp4|webm|ogg|m3u8)(?:[?#].*)?$/i.test(String(urlValue || ""));
+}
+
+function detectMediaFromEvent(row) {
+  if (!row) return { imageUrl: "", videoUrl: "", sourceUrls: [], hasVideoHint: false };
+  const detailsMap = new Map(parseDetailsTokens(row.details));
+  const videoHintRegex = /(فيديو|video|clip|شاهد|watch)/i;
+  const hasVideoHint = videoHintRegex.test(
+    [row.title, row.summary, row.details, row.ai_assessment].filter(Boolean).join(" ")
+  );
+  const textBlob = [
+    row.url,
+    row.title,
+    row.summary,
+    row.details,
+    row.ai_assessment,
+    detailsMap.get("media"),
+    detailsMap.get("media_url"),
+    detailsMap.get("expanded_url"),
+    detailsMap.get("external_url"),
+    detailsMap.get("preview_image_url"),
+    detailsMap.get("image"),
+    detailsMap.get("image_url"),
+    detailsMap.get("thumbnail"),
+    detailsMap.get("thumb"),
+    detailsMap.get("video"),
+    detailsMap.get("video_url"),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const urls = extractUrlsFromText(textBlob);
+  let imageUrl = "";
+  let videoUrl = "";
+  let fallbackEmbedUrl = toXStatusEmbedUrl(row.url);
+  for (const url of urls) {
+    if (!videoUrl) {
+      const ytEmbed = toYouTubeEmbedUrl(url);
+      if (ytEmbed) {
+        videoUrl = ytEmbed;
+        continue;
+      }
+      const xEmbed = toXStatusEmbedUrl(url);
+      if (xEmbed && !fallbackEmbedUrl) {
+        fallbackEmbedUrl = xEmbed;
+      }
+      if (isDirectVideoUrl(url)) {
+        videoUrl = url;
+        continue;
+      }
+    }
+    if (!imageUrl && /\.(png|jpe?g|gif|webp|bmp|svg|avif)(?:[?#].*)?$/i.test(url)) {
+      imageUrl = url;
+    }
+  }
+  if (!videoUrl && fallbackEmbedUrl && (hasVideoHint || String(row.source_type || "").toLowerCase() === "social")) {
+    videoUrl = fallbackEmbedUrl;
+  }
+  return { imageUrl, videoUrl, sourceUrls: urls.slice(0, 10), hasVideoHint };
 }
 
 function parseDetailsTokens(details) {
@@ -714,18 +2138,169 @@ function parseDetailsTokens(details) {
     .split(/\||;|\n/)
     .map((x) => x.trim())
     .filter(Boolean)
-    .filter((token) => token.includes("="))
     .map((token) => {
-      const [k, ...rest] = token.split("=");
-      return [k.trim().toLowerCase(), rest.join("=").trim()];
-    });
+      const eqIndex = token.indexOf("=");
+      const colonIndex = token.indexOf(":");
+      const splitIndex =
+        eqIndex >= 0 && colonIndex >= 0 ? Math.min(eqIndex, colonIndex) : eqIndex >= 0 ? eqIndex : colonIndex;
+      if (splitIndex <= 0) return null;
+      const key = token.slice(0, splitIndex).trim().toLowerCase();
+      const value = token.slice(splitIndex + 1).trim();
+      if (!key) return null;
+      return [key, value];
+    })
+    .filter(Boolean);
 }
 
-function parsePossiblyDate(value) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed;
+function normalizeTransportValue(value) {
+  const cleaned = cleanText(value).trim();
+  if (!cleaned) return "";
+  const lower = cleaned.toLowerCase();
+  if (["n/a", "na", "unknown", "none", "null", "-", "غير محدد"].includes(lower)) return "";
+  return cleaned;
+}
+
+function inferCountryFromIcaoCode(value) {
+  const code = cleanText(value).toUpperCase().trim();
+  if (code.length < 2) return "";
+  const prefix2 = code.slice(0, 2);
+  if (ICAO_COUNTRY_PREFIX_MAP[prefix2]) return ICAO_COUNTRY_PREFIX_MAP[prefix2];
+  if (code.startsWith("K")) return "United States";
+  if (code.startsWith("C")) return "Canada";
+  if (code.startsWith("Y")) return "Australia";
+  return "";
+}
+
+function isUaeCountryValue(value) {
+  const text = normalizeTransportValue(value).toLowerCase();
+  if (!text) return false;
+  return UAE_COUNTRY_MARKERS.some((marker) => text.includes(marker.toLowerCase()));
+}
+
+function isUaeAirportCode(value) {
+  const text = normalizeTransportValue(value).toUpperCase();
+  if (!text) return false;
+  if (UAE_IATA_AIRPORT_CODES.has(text)) return true;
+  const tokenMatch = text.match(/\b[A-Z0-9]{3,4}\b/g) || [];
+  return tokenMatch.some((token) => UAE_IATA_AIRPORT_CODES.has(token));
+}
+
+function isUaeIcaoCode(value) {
+  const code = normalizeTransportValue(value).toUpperCase();
+  if (!code) return false;
+  return code.startsWith("OM");
+}
+
+function parseTransportContext(row) {
+  const detailsMap = new Map(parseDetailsTokens(row?.details));
+  const sourceType = String(row?.source_type || "").toLowerCase();
+  if (sourceType === "marine") {
+    const shipName = normalizeTransportValue(
+      detailsMap.get("ship_name") || detailsMap.get("vessel") || detailsMap.get("name") || normalizeStoryTitle(row?.title || "")
+    );
+    const fromCountry = normalizeTransportValue(detailsMap.get("from_country") || detailsMap.get("country") || detailsMap.get("country_name"));
+    const toCountry = normalizeTransportValue(detailsMap.get("to_country") || detailsMap.get("destination_country"));
+    const fromPort = normalizeTransportValue(detailsMap.get("from_port") || detailsMap.get("home_port") || detailsMap.get("origin_port"));
+    const toPort = normalizeTransportValue(detailsMap.get("to_port") || detailsMap.get("destination_port") || detailsMap.get("destination"));
+    const vehicleType = normalizeTransportValue(detailsMap.get("vessel_type") || detailsMap.get("type"));
+    const vehicleTypeSpecific = normalizeTransportValue(detailsMap.get("vessel_type_specific") || detailsMap.get("type_specific"));
+    return {
+      shipName,
+      fromCountry,
+      toCountry,
+      fromPort,
+      toPort,
+      vehicleType,
+      vehicleTypeSpecific,
+      speedKn: parseLooseNumber(detailsMap.get("speed_kn") || detailsMap.get("speed") || detailsMap.get("sog")),
+      heading: normalizeTransportValue(detailsMap.get("heading")),
+      detailsMap,
+    };
+  }
+  if (sourceType === "flight") {
+    const fromCountry = normalizeTransportValue(detailsMap.get("from_country") || detailsMap.get("origin_country"));
+    const toCountry = normalizeTransportValue(detailsMap.get("to_country") || detailsMap.get("destination_country"));
+    const fromPort = normalizeTransportValue(detailsMap.get("from_port") || detailsMap.get("origin"));
+    const toPort = normalizeTransportValue(detailsMap.get("to_port") || detailsMap.get("destination"));
+    const vehicleType = normalizeTransportValue(detailsMap.get("aircraft_type"));
+    return {
+      fromCountry,
+      toCountry,
+      fromPort,
+      toPort,
+      vehicleType,
+      speedKn: parseLooseNumber(detailsMap.get("speed_kt") || detailsMap.get("speed") || detailsMap.get("ground_speed")),
+      altitude: parseLooseNumber(detailsMap.get("altitude") || detailsMap.get("baro_alt_m")),
+      detailsMap,
+    };
+  }
+  return {
+    detailsMap,
+  };
+}
+
+function routeArrowSummary(fromValue, toValue) {
+  const from = normalizeTransportValue(fromValue) || "غير محدد";
+  const to = normalizeTransportValue(toValue) || "غير محدد";
+  return `${from} → ${to}`;
+}
+
+function rowMatchesCountryMarkersForOps(row, markers) {
+  if (!markers?.length) return true;
+  const transport = parseTransportContext(row);
+  const text = cleanText(
+    [
+      row?.title,
+      row?.summary,
+      row?.details,
+      row?.location,
+      transport.fromCountry,
+      transport.toCountry,
+      transport.fromPort,
+      transport.toPort,
+      transport.shipName,
+      transport.vehicleType,
+    ]
+      .filter(Boolean)
+      .join(" ")
+  ).toLowerCase();
+  return markers.some((marker) => marker && text.includes(marker));
+}
+
+function geoDistanceKm(latA, lonA, latB, lonB) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const earthKm = 6371;
+  const dLat = toRad(latB - latA);
+  const dLon = toRad(lonB - lonA);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(latA)) * Math.cos(toRad(latB)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthKm * c;
+}
+
+function inferCountryByCoords(latValue, lonValue, maxKm = 430) {
+  const lat = Number(latValue);
+  const lon = Number(lonValue);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
+  let best = { country: "", distance: Number.POSITIVE_INFINITY };
+  for (const country of threatCountryDefs) {
+    const distance = geoDistanceKm(lat, lon, Number(country.lat), Number(country.lon));
+    if (distance < best.distance) {
+      best = { country: country.country_ar, distance };
+    }
+  }
+  return best.distance <= maxKm ? best.country : "";
+}
+
+function isInsideCountryOpsRadius(row, countryDef, maxKm = 450) {
+  if (!row || !countryDef) return false;
+  const coords = sanitizeLatLon(row.latitude, row.longitude);
+  if (!coords) return false;
+  const countryLat = Number(countryDef.lat);
+  const countryLon = Number(countryDef.lon);
+  if (!Number.isFinite(countryLat) || !Number.isFinite(countryLon)) return false;
+  return geoDistanceKm(coords.lat, coords.lon, countryLat, countryLon) <= maxKm;
 }
 
 function isStalePublishedForRow(row, publishedRaw) {
@@ -743,8 +2318,15 @@ function summarizeSourceDetails(row) {
   if (row.source_type === "flight") {
     const parts = [];
     if (detailsMap.get("callsign")) parts.push(`النداء: ${detailsMap.get("callsign")}`);
-    if (detailsMap.get("country")) parts.push(`الدولة: ${detailsMap.get("country")}`);
+    if (detailsMap.get("from_country") || detailsMap.get("to_country")) {
+      parts.push(`المسار: ${routeArrowSummary(detailsMap.get("from_country"), detailsMap.get("to_country"))}`);
+    }
+    if (detailsMap.get("from_port") || detailsMap.get("to_port")) {
+      parts.push(`المطار: ${routeArrowSummary(detailsMap.get("from_port"), detailsMap.get("to_port"))}`);
+    }
+    if (detailsMap.get("speed_kt")) parts.push(`السرعة: ${detailsMap.get("speed_kt")} عقدة`);
     if (detailsMap.get("velocity_mps")) parts.push(`السرعة: ${detailsMap.get("velocity_mps")} م/ث`);
+    if (detailsMap.get("altitude")) parts.push(`الارتفاع: ${detailsMap.get("altitude")}`);
     if (detailsMap.get("baro_alt_m")) parts.push(`الارتفاع: ${detailsMap.get("baro_alt_m")} م`);
     if (detailsMap.get("on_ground")) parts.push(`على الأرض: ${detailsMap.get("on_ground")}`);
     return parts.join(" | ") || cleanText(row.summary || "");
@@ -753,6 +2335,13 @@ function summarizeSourceDetails(row) {
   if (row.source_type === "marine") {
     const parts = [];
     if (detailsMap.get("ship_name")) parts.push(`السفينة: ${detailsMap.get("ship_name")}`);
+    if (detailsMap.get("from_country") || detailsMap.get("to_country")) {
+      parts.push(`الدول: ${routeArrowSummary(detailsMap.get("from_country"), detailsMap.get("to_country"))}`);
+    }
+    if (detailsMap.get("from_port") || detailsMap.get("to_port")) {
+      parts.push(`الموانئ: ${routeArrowSummary(detailsMap.get("from_port"), detailsMap.get("to_port"))}`);
+    }
+    if (detailsMap.get("vessel_type")) parts.push(`النوع: ${detailsMap.get("vessel_type")}`);
     if (detailsMap.get("mmsi")) parts.push(`MMSI: ${detailsMap.get("mmsi")}`);
     if (detailsMap.get("speed_kn")) parts.push(`السرعة: ${detailsMap.get("speed_kn")} عقدة`);
     return parts.join(" | ") || cleanText(row.summary || "");
@@ -775,7 +2364,6 @@ function summarizeSourceDetails(row) {
 function parseFacts(row) {
   if (!row) return [];
   const facts = [
-    ["المصدر", row.source_name],
     ["النوع", sourceTypeLabel(row.source_type)],
     ["الشدّة", `S${row.severity}`],
     ["الصلة", row.relevance_score],
@@ -786,11 +2374,11 @@ function parseFacts(row) {
 
   const detailsMap = new Map(parseDetailsTokens(row.details));
   const importantByType = {
-    flight: ["callsign", "country", "velocity_mps", "baro_alt_m", "on_ground", "track_deg"],
-    marine: ["ship_name", "mmsi", "speed_kn", "heading", "status", "destination"],
+    flight: ["callsign", "from_country", "to_country", "from_port", "to_port", "aircraft_type", "speed_kt", "altitude", "on_ground"],
+    marine: ["ship_name", "from_country", "to_country", "from_port", "to_port", "vessel_type", "mmsi", "imo", "speed_kn", "heading", "status"],
     cyber: ["cve", "severity", "vendor", "product"],
     incident: ["country", "city", "category"],
-    news: ["published", "author", "source"],
+    news: ["published", "author"],
     social: ["social_sentiment", "trend_score", "comments"]
   };
   const selectedKeys = importantByType[row.source_type] || [];
@@ -813,8 +2401,353 @@ function cleanText(value) {
   return node.value.replace(/\s+/g, " ").trim();
 }
 
+function hasArabicScript(value) {
+  return /[\u0600-\u06FF]/.test(String(value || ""));
+}
+
+function isLikelyMojibake(value) {
+  const text = String(value || "");
+  if (!text) return false;
+  if (hasArabicScript(text)) return false;
+  return /(?:Ø.|Ù.|Ã.|Â.)/.test(text);
+}
+
+function repairArabicMojibake(value) {
+  const input = String(value || "");
+  if (!isLikelyMojibake(input)) return input;
+  try {
+    const bytes = Uint8Array.from(Array.from(input).map((ch) => ch.charCodeAt(0) & 0xff));
+    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    if (hasArabicScript(decoded)) return decoded;
+    return input;
+  } catch {
+    return input;
+  }
+}
+
 function normalizeLegacyText(value) {
-  return cleanText(value).replace(/war_focus/gi, "تركيز الحرب");
+  const text = repairArabicMojibake(cleanText(value));
+  return text
+    .replace(/war_focus/gi, "تركيز الحرب")
+    .replace(/\bauto_review\b/gi, "مراجعة آلية")
+    .replace(/\bwatching\b/gi, "مراقبة")
+    .replace(/\bresolved\b/gi, "مغلق")
+    .replace(/\bopen\b/gi, "مفتوح")
+    .replace(/\bunknown\b/gi, "غير محسوم")
+    .replace(/\bcorrect\b/gi, "صحيح")
+    .replace(/\bpartial\b/gi, "جزئي")
+    .replace(/\bwrong\b/gi, "خاطئ")
+    .replace(/\boutcome\b/gi, "النتيجة");
+}
+
+function sanitizePredictionUpdateContent(value, kind) {
+  let text = normalizeLegacyText(value).replace(/\r/g, "\n");
+  text = text
+    .replace(/\(\s*(?:المصدر|source)\s*[:：][^)]+\)/gi, "")
+    .replace(/\|\s*(?:المصدر|source)\s*[:：][^|]+/gi, "")
+    .replace(/[ ]{2,}/g, " ");
+  if (String(kind || "").toLowerCase() !== "auto_review") {
+    return text.trim();
+  }
+  const hiddenPrefixes = [
+    "مراجعة آلية",
+    "عنوان التذكرة:",
+    "التركيز:",
+    "النطاق:",
+    "موعد الاستحقاق",
+    "أدلة القرار",
+    "طلب المستخدم:",
+  ];
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !hiddenPrefixes.some((prefix) => line.startsWith(prefix)));
+  return lines.join("\n").trim();
+}
+
+function sanitizePredictionBoxContent(value) {
+  const text = normalizeLegacyText(value)
+    .replace(/\r/g, "\n")
+    .replace(/\(\s*(?:المصدر|source)\s*[:：][^)]+\)/gi, "")
+    .replace(/\|\s*(?:المصدر|source)\s*[:：][^|]+/gi, "")
+    .replace(/[ ]{2,}/g, " ");
+  const hiddenLinePatterns = [
+    /^\s*(?:المصدر|source)\s*[:：]/i,
+    /^\s*scope_(?:country|topic|from)\s*[:=]/i,
+    /^\s*(?:عنوان التذكرة|التركيز|النطاق|طلب المستخدم)\s*[:：]/i,
+  ];
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !hiddenLinePatterns.some((pattern) => pattern.test(line)));
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function sanitizeEventDetailText(value) {
+  const raw = normalizeLegacyText(value).replace(/\r/g, "\n");
+  if (!raw) return "";
+  const tokenBlockedPatterns = [
+    /(?:المصدر|source)\s*[:：]/i,
+    /(?:url|link|expanded_url|external_url|canonical_url|source_url|tweet_url|post_url)\s*[:=]/i,
+    /(?:video(?:_url)?|image(?:_url)?|photo|media)\s*[:=]/i,
+    /(?:source_name|source_type)\s*[:=]/i,
+  ];
+  const cleaned = raw
+    .split("|")
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .map((token) => token.replace(/https?:\/\/\S+/gi, "").replace(/\bt\.co\/\S+/gi, "").trim())
+    .filter((token) => token && !tokenBlockedPatterns.some((pattern) => pattern.test(token)))
+    .join(" | ")
+    .replace(/\(\s*(?:المصدر|source)\s*[:：][^)]+\)/gi, "")
+    .replace(/\b(?:المصدر|source)\s*[:：][^|]+/gi, "")
+    .replace(/[ ]{2,}/g, " ")
+    .trim();
+  return cleaned;
+}
+
+function confidenceBucketLabel(value) {
+  const score = Number(value || 0);
+  if (score >= 80) return "مرتفعة";
+  if (score >= 60) return "متوسطة";
+  return "منخفضة";
+}
+
+function aiVerdictBySeverity(level) {
+  const value = Number(level || 0);
+  if (value >= 5) return "أولوية حرجة";
+  if (value >= 4) return "أولوية عالية";
+  if (value === 3) return "مراقبة نشطة";
+  if (value === 2) return "متابعة اعتيادية";
+  return "خلفية معلوماتية";
+}
+
+function clampInt(value, min, max) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return min;
+  return Math.max(min, Math.min(max, Math.round(numeric)));
+}
+
+function buildAiActionSuggestions(row) {
+  const sourceType = String(row?.source_type || "").toLowerCase();
+  const severity = Number(row?.severity || 0);
+  if (sourceType === "flight") {
+    return [
+      "فوري (0-2 ساعة): تأكيد حالة المسارات المرتبطة بالإمارات ورصد أي تغيّر مفاجئ في الإقلاع/الهبوط.",
+      "قصير (2-12 ساعة): مراجعة نمط الرحلات (قادمة/مغادرة) وتحديد أي انحراف عن المعدل التشغيلي المعتاد.",
+      "متابعة (12-24 ساعة): تجهيز بدائل تشغيلية للمسارات الحساسة عند تكرار نفس الإشارة.",
+    ];
+  }
+  if (sourceType === "marine") {
+    return [
+      "فوري (0-2 ساعة): مراجعة حركة السفن قرب الممرات الحيوية والموانئ ذات الحساسية العالية.",
+      "قصير (2-12 ساعة): تحديث مسارات السفن المعرضة للمخاطر وتأكيد نقاط العبور الآمنة.",
+      "متابعة (12-24 ساعة): تحليل نمط التكدس/التحويل في الموانئ وربطه بخطط الاستمرارية.",
+    ];
+  }
+  if (sourceType === "cyber") {
+    return [
+      "فوري (0-2 ساعة): تفعيل مراقبة أمنية مركزة على الأنظمة الحرجة وربطها بإنذارات فورية.",
+      "قصير (2-12 ساعة): مراجعة الثغرات المحتملة وسجل المحاولات غير الاعتيادية.",
+      "متابعة (12-24 ساعة): تحديث ضوابط الوقاية وخطة الاستجابة وفق التهديدات الجديدة.",
+    ];
+  }
+  if (severity >= 4) {
+    return [
+      "فوري (0-2 ساعة): التحقق من الدقة عبر مصادر موثوقة متعددة وتثبيت المعلومة التشغيلية الأساسية.",
+      "قصير (2-12 ساعة): مواءمة قرار التشغيل مع الأدلة الأحدث ومنع ردود الفعل غير المؤكدة.",
+      "متابعة (12-24 ساعة): إعادة تقييم المخاطر بشكل دوري مع كل تحديث جوهري في نفس السياق.",
+    ];
+  }
+  return [
+    "فوري (0-2 ساعة): المتابعة الهادئة للحدث دون تصعيد تشغيلي.",
+    "قصير (2-12 ساعة): التأكد من استمرار نفس الاتجاه وعدم ظهور مؤشرات تصعيد.",
+    "متابعة (12-24 ساعة): إبقاء الحدث ضمن الرصد الخلفي مع التحديث عند تغيّر النمط.",
+  ];
+}
+
+function buildAiEscalationTriggers(row) {
+  const sourceType = String(row?.source_type || "").toLowerCase();
+  const base = [
+    "ظهور تأكيد رسمي جديد يغيّر التقييم الحالي.",
+    "تكرار نفس النمط عبر أكثر من حدث خلال نافذة زمنية قصيرة.",
+  ];
+  if (sourceType === "flight") {
+    base.push("تحول مفاجئ في اتجاه الرحلات (انخفاض حاد/إلغاء/تحويل مسارات واسعة).");
+  } else if (sourceType === "marine") {
+    base.push("رصد اضطراب ملاحي مستمر قرب الممرات الحيوية أو الموانئ الرئيسية.");
+  } else if (sourceType === "cyber") {
+    base.push("انتقال النشاط السيبراني من محاولات رصد إلى تأثير تشغيلي مباشر.");
+  } else {
+    base.push("انتقال الحدث من خبر منفرد إلى سلسلة أحداث مرتبطة بنفس الموضوع.");
+  }
+  return base.slice(0, 3);
+}
+
+function buildAiMissingInfo(row) {
+  const detailsMap = new Map(parseDetailsTokens(row?.details));
+  const missing = [];
+  if (!cleanText(row?.location) && (row?.latitude == null || row?.longitude == null)) {
+    missing.push("الموقع الدقيق للحدث غير متوفر.");
+  }
+  if (!cleanText(row?.summary)) {
+    missing.push("ملخص تحليلي موحّد غير متوفر.");
+  }
+  if (String(row?.source_type || "").toLowerCase() === "flight") {
+    if (!detailsMap.get("from_country") && !detailsMap.get("orig_iata") && !detailsMap.get("orig_icao")) {
+      missing.push("بيانات منشأ الرحلة غير مكتملة.");
+    }
+    if (!detailsMap.get("to_country") && !detailsMap.get("dest_iata") && !detailsMap.get("dest_icao")) {
+      missing.push("بيانات وجهة الرحلة غير مكتملة.");
+    }
+  }
+  if (String(row?.source_type || "").toLowerCase() === "marine") {
+    if (!detailsMap.get("from_port") && !detailsMap.get("to_port")) {
+      missing.push("بيانات الموانئ المرتبطة بالحركة غير واضحة.");
+    }
+  }
+  return missing.slice(0, 3);
+}
+
+function pickBriefSentence(value) {
+  const text = sanitizeEventDetailText(value);
+  if (!text) return "";
+  const sentence = text
+    .split(/[\n.!؟؛]+/)
+    .map((part) => part.trim())
+    .find(Boolean);
+  if (!sentence) return text.slice(0, 180);
+  return sentence.length > 180 ? `${sentence.slice(0, 177)}...` : sentence;
+}
+
+function countSignalHits(text, patterns) {
+  const source = cleanText(text).toLowerCase();
+  if (!source) return 0;
+  return patterns.reduce((sum, pattern) => {
+    pattern.lastIndex = 0;
+    const found = source.match(pattern);
+    return sum + (found ? found.length : 0);
+  }, 0);
+}
+
+function buildAiImpactBalance(row, operationalSummary) {
+  const sourceType = String(row?.source_type || "").toLowerCase();
+  const severity = Number(row?.severity || 0);
+  const text = [row?.title, row?.summary, row?.details, row?.ai_assessment, operationalSummary].filter(Boolean).join(" ");
+
+  const positivePatterns = [
+    /تهدئ(?:ة|ات)/g,
+    /احتواء/g,
+    /تعزيز/g,
+    /استقرار/g,
+    /تنسيق/g,
+    /دعم/g,
+    /نجاح/g,
+    /حماية/g,
+    /خفض(?:\s+)?التوتر/g,
+    /agreement|de-escalat|stabil|contain|support|protect/g,
+  ];
+  const negativePatterns = [
+    /هجوم/g,
+    /تصعيد/g,
+    /استهداف/g,
+    /إصابات|اصابات/g,
+    /وفيات|قتلى|ضحايا/g,
+    /تهديد/g,
+    /إغلاق|اغلاق/g,
+    /تعطل|تعطيل/g,
+    /اختراق/g,
+    /توتر/g,
+    /attack|escalat|threat|strike|casualt|injur|disrupt|closure/g,
+  ];
+
+  const positiveHits = countSignalHits(text, positivePatterns);
+  const negativeHits = countSignalHits(text, negativePatterns);
+  const brief = pickBriefSentence(row?.summary || row?.title || operationalSummary) || "قراءة مختصرة غير متوفرة.";
+
+  let potentialBenefit = "يدعم تحسين الوعي المبكر واتخاذ قرار تشغيلي أسرع عند ظهور إشارات مؤكدة.";
+  let potentialRisk = "قد يسبب ضغطًا تشغيليًا إضافيًا إذا تكرر الحدث أو ارتفعت شدته خلال نافذة قصيرة.";
+  if (sourceType === "flight") {
+    potentialBenefit = "يفيد في تحسين إدارة الحركة الجوية وتحديد المسارات الأكثر استقرارًا.";
+    potentialRisk = "قد ينعكس على انتظام الرحلات إذا ظهرت مؤشرات تحويل/إلغاء متتابعة.";
+  } else if (sourceType === "marine") {
+    potentialBenefit = "يساعد على تأمين الممرات البحرية وتحديث أولويات العبور للموانئ الحساسة.";
+    potentialRisk = "قد يرفع مخاطر التأخير أو التحويل الملاحي عند استمرار المؤشرات السلبية.";
+  } else if (sourceType === "cyber") {
+    potentialBenefit = "يعزز الاستجابة الوقائية المبكرة للأنظمة الحرجة.";
+    potentialRisk = "قد يتطور إلى أثر تشغيلي مباشر إذا تحولت المؤشرات إلى اختراق فعلي.";
+  }
+
+  let netImpact = "المحصلة التشغيلية: أثر متوازن يحتاج متابعة دورية.";
+  if (severity >= 4 || negativeHits > positiveHits + 1) {
+    netImpact = "المحصلة التشغيلية: يميل الأثر حاليًا إلى السلبية ويتطلب تشديد المراقبة.";
+  } else if (positiveHits > negativeHits + 1 && severity <= 2) {
+    netImpact = "المحصلة التشغيلية: الأثر أقرب للإيجابي مع استمرار المراقبة بدون تصعيد.";
+  }
+
+  return { brief, potentialBenefit, potentialRisk, netImpact };
+}
+
+function buildAiAssessmentView(row) {
+  if (!row) {
+    return {
+      verdict: "غير متاح",
+      confidence: 0,
+      confidenceLabel: "منخفضة",
+      operationalSummary: "لا توجد بيانات كافية لبناء تقييم تشغيلي.",
+      evidence: [],
+      actions: [],
+      triggers: [],
+      missingInfo: [],
+    };
+  }
+
+  const severity = Number(row.severity || 0);
+  const relevance = Number(row.relevance_score || 0);
+  const assessment = sanitizeEventDetailText(row.ai_assessment);
+  const summary = sanitizeEventDetailText(row.summary || row.details);
+  const title = sanitizeEventDetailText(row.title);
+  const operationalSummary = assessment || summary || title || "لا يوجد وصف تشغيلي كافٍ.";
+  const evidenceCandidates = [summary, title]
+    .flatMap((part) => toBulletLines(part))
+    .map((line) => sanitizeEventDetailText(line))
+    .filter(Boolean);
+  const evidence = [...new Set(evidenceCandidates)].slice(0, 3);
+
+  let confidenceRaw = 42 + relevance * 28 + severity * 6;
+  if (assessment) confidenceRaw += 8;
+  if (summary) confidenceRaw += 6;
+  if (row.latitude != null && row.longitude != null) confidenceRaw += 4;
+  const confidence = clampInt(confidenceRaw, 35, 96);
+  const impact = buildAiImpactBalance(row, operationalSummary);
+
+  return {
+    verdict: aiVerdictBySeverity(severity),
+    confidence,
+    confidenceLabel: confidenceBucketLabel(confidence),
+    operationalSummary,
+    evidence,
+    actions: buildAiActionSuggestions(row),
+    triggers: buildAiEscalationTriggers(row),
+    missingInfo: buildAiMissingInfo(row),
+    impact,
+  };
+}
+
+function predictionWindowLabel(row) {
+  const hours = Number(row?.window_hours || 0);
+  if (Number.isFinite(hours) && hours > 0) {
+    if (hours % 24 === 0) {
+      const days = Math.max(1, Math.round(hours / 24));
+      if (days === 1) return "آخر 24 ساعة";
+      return `آخر ${days} أيام`;
+    }
+    return `آخر ${hours} ساعة`;
+  }
+  const fallback = normalizeLegacyText(row?.window_label || "");
+  return fallback || "نافذة التقييم";
 }
 
 function isLegacyHistoryRow(row) {
@@ -823,16 +2756,16 @@ function isLegacyHistoryRow(row) {
 }
 
 function byCreatedAtDesc(a, b) {
-  const aTs = new Date(a?.created_at || 0).getTime();
-  const bTs = new Date(b?.created_at || 0).getTime();
+  const aTs = parsePossiblyDate(a?.created_at || 0)?.getTime() ?? 0;
+  const bTs = parsePossiblyDate(b?.created_at || 0)?.getTime() ?? 0;
   const aSafe = Number.isNaN(aTs) ? 0 : aTs;
   const bSafe = Number.isNaN(bTs) ? 0 : bTs;
   return bSafe - aSafe;
 }
 
 function byDateDesc(aDateValue, bDateValue) {
-  const aTs = new Date(aDateValue || 0).getTime();
-  const bTs = new Date(bDateValue || 0).getTime();
+  const aTs = parsePossiblyDate(aDateValue || 0)?.getTime() ?? 0;
+  const bTs = parsePossiblyDate(bDateValue || 0)?.getTime() ?? 0;
   const aSafe = Number.isNaN(aTs) ? 0 : aTs;
   const bSafe = Number.isNaN(bTs) ? 0 : bTs;
   return bSafe - aSafe;
@@ -854,12 +2787,6 @@ function likelyEnglish(value) {
   return /[A-Za-z]/.test(text) && !/[\u0600-\u06FF]/.test(text);
 }
 
-function hasArabicScript(value) {
-  const text = cleanText(value);
-  if (!text) return false;
-  return /[\u0600-\u06FF]/.test(text);
-}
-
 function isArabicPreferredNewsRow(row) {
   if (!row || row.source_type !== "news") return false;
   const name = String(row.source_name || "").toLowerCase();
@@ -875,7 +2802,7 @@ function buildTrend(events) {
   const start = now - 24 * 60 * 60 * 1000;
   const bucket = 3 * 60 * 60 * 1000;
   for (const row of events) {
-    const ts = new Date(row.event_time).getTime();
+    const ts = parsePossiblyDate(row.event_time)?.getTime() ?? Number.NaN;
     if (Number.isNaN(ts) || ts < start || ts > now) continue;
     buckets[Math.min(7, Math.floor((ts - start) / bucket))] += 1;
   }
@@ -915,6 +2842,13 @@ export default function App() {
     model: "gpt-4.1-mini",
     message: "Checking..."
   });
+  const [jsonCargoStatus, setJsonCargoStatus] = useState({
+    configured: false,
+    state: "unknown",
+    message: "Checking...",
+    detail: null,
+    status_code: null,
+  });
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -941,18 +2875,32 @@ export default function App() {
   const [selectedEventIds, setSelectedEventIds] = useState([]);
   const [selectedAlertIds, setSelectedAlertIds] = useState([]);
   const [selectedVideoSourceId, setSelectedVideoSourceId] = useState(skyVideoSources[0]?.id || "");
-  const [versionTab, setVersionTab] = useState("v1");
+  const [videoEmbedIndexBySource, setVideoEmbedIndexBySource] = useState({});
+  const [versionTab, setVersionTab] = useState("v2");
   const [aiTab, setAiTab] = useState("chat");
   const [v2Lane, setV2Lane] = useState("all");
   const [v2UnreadOnly, setV2UnreadOnly] = useState(false);
   const [v2TrustedOnly, setV2TrustedOnly] = useState(true);
   const [v2FocusedEventId, setV2FocusedEventId] = useState(null);
   const [v2SelectedEventIds, setV2SelectedEventIds] = useState([]);
+  const [v2OpsWindowHours, setV2OpsWindowHours] = useState(6);
+  const [v2OpsLayers, setV2OpsLayers] = useState({ air: true, marine: true, threats: true });
+  const [v2OpsFocusPointId, setV2OpsFocusPointId] = useState(null);
+  const [v2OpsHoveredPointId, setV2OpsHoveredPointId] = useState(null);
+  const [v2ThreatCountry, setV2ThreatCountry] = useState(threatCountryDefs[0]?.country || "UAE");
   const [predictionTickets, setPredictionTickets] = useState([]);
   const [predictionUpdates, setPredictionUpdates] = useState([]);
+  const [seenPredictionUpdateIds, setSeenPredictionUpdateIds] = useState([]);
+  const [workspaceEvidenceRows, setWorkspaceEvidenceRows] = useState({});
   const [predictionWorkspaces, setPredictionWorkspaces] = useState(() => [makePredictionWorkspace("ws-1", 1)]);
   const [activePredictionWorkspaceId, setActivePredictionWorkspaceId] = useState("ws-1");
   const [predictionLeaderboard, setPredictionLeaderboard] = useState([]);
+  const [predictionReviewConfig, setPredictionReviewConfig] = useState({
+    enabled: false,
+    review_seconds: 600,
+    min_interval_minutes: 10,
+  });
+  const [savingPredictionReviewConfig, setSavingPredictionReviewConfig] = useState(false);
   const [creatingPrediction, setCreatingPrediction] = useState(false);
   const [updatingPrediction, setUpdatingPrediction] = useState(false);
   const [deletingPredictionId, setDeletingPredictionId] = useState(null);
@@ -974,13 +2922,37 @@ export default function App() {
   const [arabicMap, setArabicMap] = useState({});
   const [seenEventIds, setSeenEventIds] = useState([]);
   const [v2FocusFlash, setV2FocusFlash] = useState(false);
+  const [v2SectionOpen, setV2SectionOpen] = useState({
+    predictions: true,
+    opsBoard: true,
+    narrative: true,
+    freshness: true,
+    focus: true,
+    storyStream: true,
+  });
   const v2FocusPanelRef = useRef(null);
+  const v2OpsBoardRef = useRef(null);
+  const v2OpsMapContainerRef = useRef(null);
+  const v2OpsLeafletMapRef = useRef(null);
+  const v2OpsLeafletLayerRef = useRef(null);
 
   const loadAll = useCallback(async () => {
     try {
-      const [eventsResp, alertsResp, sourcesResp, messagesResp, insightsResp, reportsResp, privacyResp, predictionsResp, leaderboardResp] =
+      const [
+        eventsResp,
+        alertsResp,
+        sourcesResp,
+        messagesResp,
+        insightsResp,
+        reportsResp,
+        privacyResp,
+        predictionsResp,
+        leaderboardResp,
+        predictionReviewConfigResp,
+        jsonCargoStatusResp,
+      ] =
         await Promise.all([
-        apiGet("/events?limit=500"),
+        apiGet("/events?limit=4000"),
         apiGet("/alerts?limit=200"),
         apiGet("/sources"),
         apiGet("/ai/messages?limit=120"),
@@ -988,7 +2960,9 @@ export default function App() {
         apiGet("/ai/reports?limit=40"),
         apiGet("/ai/privacy"),
         apiGet("/ai/predictions?limit=120").catch(() => []),
-        apiGet("/ai/predictions/leaderboard").catch(() => [])
+        apiGet("/ai/predictions/leaderboard").catch(() => []),
+        apiGet("/ai/predictions/review-config").catch(() => null),
+        apiGet("/sources/jsoncargo/status").catch(() => null),
       ]);
       let aiStatusResp = {
         configured: false,
@@ -1018,6 +2992,22 @@ export default function App() {
       setPrivacy(privacyResp);
       setPredictionTickets(Array.isArray(predictionsResp) ? predictionsResp : []);
       setPredictionLeaderboard(Array.isArray(leaderboardResp) ? leaderboardResp : []);
+      if (predictionReviewConfigResp && Number.isFinite(Number(predictionReviewConfigResp.review_seconds))) {
+        setPredictionReviewConfig({
+          enabled: Boolean(predictionReviewConfigResp.enabled),
+          review_seconds: Number(predictionReviewConfigResp.review_seconds),
+          min_interval_minutes: Number(predictionReviewConfigResp.min_interval_minutes || 10),
+        });
+      }
+      if (jsonCargoStatusResp && typeof jsonCargoStatusResp === "object") {
+        setJsonCargoStatus({
+          configured: Boolean(jsonCargoStatusResp.configured),
+          state: cleanText(jsonCargoStatusResp.state || "unknown").toLowerCase() || "unknown",
+          message: cleanText(jsonCargoStatusResp.message || "Unavailable"),
+          detail: cleanText(jsonCargoStatusResp.detail || ""),
+          status_code: Number.isFinite(Number(jsonCargoStatusResp.status_code)) ? Number(jsonCargoStatusResp.status_code) : null,
+        });
+      }
       setAiStatus(aiStatusResp);
       setLastSync(new Date().toISOString());
       setError("");
@@ -1069,12 +3059,18 @@ export default function App() {
 
   const filteredEvents = useMemo(() => {
     let rows = [...sourceScopedEvents];
+    // Flight telemetry is handled in the operational map section, not the live news feed list.
+    rows = rows.filter((r) => r.source_type !== "flight");
     if (sourceFilter !== "all") rows = rows.filter((r) => r.source_type === sourceFilter);
     if (severityFilter !== "all") rows = rows.filter((r) => r.severity === Number(severityFilter));
     if (!includePeople) rows = rows.filter((r) => r.source_type !== "social");
     rows = rows.filter((r) => isLiveFreshNews(r, Number(newsWindowHours || 24)));
     return rows;
   }, [sourceScopedEvents, sourceFilter, severityFilter, includePeople, newsWindowHours]);
+
+  useEffect(() => {
+    if (sourceFilter === "flight") setSourceFilter("all");
+  }, [sourceFilter]);
 
   const sortedFilteredEvents = useMemo(
     () => [...filteredEvents].sort((a, b) => byDateDesc(eventDisplayTime(a), eventDisplayTime(b))),
@@ -1131,12 +3127,6 @@ export default function App() {
     for (const row of events) map.set(row.id, row);
     return map;
   }, [events]);
-
-  const sourceEndpointByName = useMemo(() => {
-    const map = new Map();
-    for (const source of sources) map.set(source.name, source.endpoint);
-    return map;
-  }, [sources]);
 
   const ensureEventLoaded = useCallback(
     async (eventId) => {
@@ -1197,6 +3187,134 @@ export default function App() {
   );
 
   const selectedPredictionId = activePredictionWorkspace?.selectedPredictionId || null;
+  const safeV2OpsLayers = useMemo(() => {
+    const raw = v2OpsLayers && typeof v2OpsLayers === "object" ? v2OpsLayers : {};
+    return {
+      air: raw.air !== false,
+      marine: raw.marine !== false,
+      threats: raw.threats !== false,
+    };
+  }, [v2OpsLayers]);
+
+  function buildWorkspaceEventsPath(workspace, limit = 900) {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    const range = resolveAnalysisDateRange(workspace);
+    if (range.fromIso) params.set("event_time_from", range.fromIso);
+    return `/events?${params.toString()}`;
+  }
+
+  useEffect(() => {
+    if (!activePredictionWorkspace) return;
+    const workspaceId = activePredictionWorkspace.id;
+    const range = resolveAnalysisDateRange(activePredictionWorkspace);
+    if (!range.hasRange) {
+      setWorkspaceEvidenceRows((prev) => {
+        if (!(workspaceId in prev)) return prev;
+        const next = { ...prev };
+        delete next[workspaceId];
+        return next;
+      });
+      return;
+    }
+    const queryKey = `${range.fromIso}|${String(activePredictionWorkspace.country || "").trim()}`;
+    let cancelled = false;
+    setWorkspaceEvidenceRows((prev) => ({
+      ...prev,
+      [workspaceId]: {
+        rows: Array.isArray(prev[workspaceId]?.rows) ? prev[workspaceId].rows : [],
+        loading: true,
+        queryKey,
+      },
+    }));
+    async function run() {
+      try {
+        const rows = await apiGet(buildWorkspaceEventsPath(activePredictionWorkspace));
+        if (cancelled) return;
+        setWorkspaceEvidenceRows((prev) => ({
+          ...prev,
+          [workspaceId]: {
+            rows: Array.isArray(rows) ? rows : [],
+            loading: false,
+            queryKey,
+          },
+        }));
+      } catch {
+        if (cancelled) return;
+        setWorkspaceEvidenceRows((prev) => ({
+          ...prev,
+          [workspaceId]: {
+            rows: [],
+            loading: false,
+            queryKey,
+          },
+        }));
+      }
+    }
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activePredictionWorkspace?.id,
+    activePredictionWorkspace?.analysisDateFrom,
+    activePredictionWorkspace?.country,
+  ]);
+
+  const activeWorkspaceEvidence = useMemo(() => {
+    if (!activePredictionWorkspace) return [];
+    const range = resolveAnalysisDateRange(activePredictionWorkspace);
+    const cached = workspaceEvidenceRows[activePredictionWorkspace.id];
+    if (range.hasRange) {
+      const rows = Array.isArray(cached?.rows) ? cached.rows : [];
+      const localAll = events.filter((row) => eventInsideRange(row, range));
+      if (rows.length === 0) return localAll;
+      const merged = new Map();
+      for (const row of localAll) {
+        if (!row?.id) continue;
+        merged.set(row.id, row);
+      }
+      for (const row of rows) {
+        if (!row?.id) continue;
+        if (!eventInsideRange(row, range)) continue;
+        merged.set(row.id, row);
+      }
+      return [...merged.values()].sort((a, b) => byDateDesc(eventDisplayTime(a), eventDisplayTime(b)));
+    }
+    return events.filter((row) => eventInsideRange(row, range));
+  }, [activePredictionWorkspace, events, workspaceEvidenceRows]);
+
+  const activeWorkspaceFatalityStats = useMemo(
+    () => deriveFatalityStats(activeWorkspaceEvidence, activePredictionWorkspace),
+    [activeWorkspaceEvidence, activePredictionWorkspace]
+  );
+
+  const activeWorkspaceEvidenceById = useMemo(() => {
+    const map = new Map();
+    for (const row of activeWorkspaceEvidence || []) {
+      if (!row?.id) continue;
+      map.set(row.id, row);
+    }
+    return map;
+  }, [activeWorkspaceEvidence]);
+
+  async function resolveWorkspaceAnalysisEventIds(workspace, fallbackIds) {
+    const seed = Array.isArray(fallbackIds) ? fallbackIds.filter((id) => Number.isInteger(id) && id > 0) : [];
+    if (!workspace) return [...new Set(seed)];
+    const range = resolveAnalysisDateRange(workspace);
+    if (!range.hasRange) return [...new Set(seed)];
+    const cachedRows = Array.isArray(workspaceEvidenceRows[workspace.id]?.rows) ? workspaceEvidenceRows[workspace.id].rows : null;
+    let rows = cachedRows && cachedRows.length > 0 ? cachedRows : null;
+    if (!rows) {
+      try {
+        rows = await apiGet(buildWorkspaceEventsPath(workspace));
+      } catch {
+        rows = [];
+      }
+    }
+    const extra = Array.isArray(rows) ? rows.map((row) => row.id).filter((id) => Number.isInteger(id) && id > 0) : [];
+    return [...new Set([...seed, ...extra])];
+  }
 
   function updateActivePredictionWorkspace(patch) {
     if (!activePredictionWorkspaceId) return;
@@ -1220,6 +3338,7 @@ export default function App() {
   function clearActivePredictionWorkspace() {
     updateActivePredictionWorkspace({
       country: "",
+      analysisDateFrom: "",
       topic: "",
       predictionTitle: "",
       predictionFocus: "",
@@ -1329,14 +3448,14 @@ export default function App() {
 
   const popupFacts = useMemo(() => parseFacts(popupEvent), [popupEvent]);
 
-  const popupSourceEndpoint = useMemo(() => {
-    if (!popupEvent) return null;
-    return sourceEndpointByName.get(popupEvent.source_name) || sources.find((row) => row.source_type === popupEvent.source_type)?.endpoint || null;
-  }, [popupEvent, sourceEndpointByName, sources]);
-
   const seenEventIdSet = useMemo(() => new Set(seenEventIds), [seenEventIds]);
+  const seenPredictionUpdateIdSet = useMemo(() => new Set(seenPredictionUpdateIds), [seenPredictionUpdateIds]);
 
   const isUnseenEvent = useCallback((row) => (row?.id ? !seenEventIdSet.has(row.id) : false), [seenEventIdSet]);
+  const isUnseenPredictionUpdate = useCallback(
+    (row) => (row?.id && String(row?.kind || "").toLowerCase() === "auto_review" ? !seenPredictionUpdateIdSet.has(row.id) : false),
+    [seenPredictionUpdateIdSet]
+  );
 
   const workingEventIds = useMemo(() => {
     if (selectedContextEventIds.length > 0) return selectedContextEventIds;
@@ -1357,11 +3476,8 @@ export default function App() {
   const analysisSelectionCount = selectedContextEventIds.length;
 
   const facts = useMemo(() => parseFacts(activeEvent), [activeEvent]);
-
-  const mapEvent = useMemo(() => {
-    if (activeEvent?.latitude != null && activeEvent?.longitude != null) return activeEvent;
-    return filteredEvents.find((r) => r.latitude != null && r.longitude != null) || null;
-  }, [activeEvent, filteredEvents]);
+  const activeAiAssessment = useMemo(() => buildAiAssessmentView(activeEvent), [activeEvent]);
+  const popupAiAssessment = useMemo(() => buildAiAssessmentView(popupEvent), [popupEvent]);
 
   const stats = useMemo(
     () => ({
@@ -1465,6 +3581,764 @@ export default function App() {
     };
   }, [v2Events]);
 
+  const v2OpsRegionalEvents = useMemo(() => {
+    const regionalKeywords = [
+      "uae",
+      "united arab emirates",
+      "dubai",
+      "abu dhabi",
+      "qatar",
+      "kuwait",
+      "bahrain",
+      "saudi",
+      "oman",
+      "jordan",
+      "gulf",
+      "hormuz",
+      "الإمارات",
+      "الامارات",
+      "قطر",
+      "الكويت",
+      "البحرين",
+      "السعودية",
+      "عمان",
+      "الأردن",
+      "الخليج",
+      "هرمز",
+    ];
+    const marineWatchKeywords = [
+      "marine",
+      "maritime",
+      "ship",
+      "vessel",
+      "tanker",
+      "lng",
+      "imo",
+      "ملاحة",
+      "بحري",
+      "سفينة",
+      "ناقلة",
+      "ميناء",
+      "البحر الأحمر",
+      "البحر المتوسط",
+      "البحر الأبيض المتوسط",
+    ];
+    const threatWatchKeywords = [
+      "missile",
+      "ballistic",
+      "cruise",
+      "drone",
+      "uav",
+      "intercept",
+      "air defense",
+      "صاروخ",
+      "بالستي",
+      "كروز",
+      "مسيّرة",
+      "مسيّرات",
+      "درون",
+      "اعتراض",
+      "دفاع جوي",
+    ];
+    const windowMs = Math.max(1, Number(v2OpsWindowHours || 6)) * 60 * 60 * 1000;
+    const cutoff = Date.now() - windowMs;
+    let rows = [...events];
+    if (v2TrustedOnly) rows = rows.filter((row) => isTrustedEvent(row));
+    rows = rows.filter((row) => {
+      const ts = parsePossiblyDate(eventDisplayTime(row))?.getTime() ?? Number.NaN;
+      if (!Number.isFinite(ts) || ts < cutoff) return false;
+      if (row.source_type === "flight" || row.source_type === "marine") return true;
+      const text = eventText(row);
+      return (
+        regionalKeywords.some((keyword) => text.includes(keyword)) ||
+        marineWatchKeywords.some((keyword) => text.includes(keyword)) ||
+        threatWatchKeywords.some((keyword) => text.includes(keyword))
+      );
+    });
+    return rows.sort((a, b) => byDateDesc(eventDisplayTime(a), eventDisplayTime(b)));
+  }, [events, v2TrustedOnly, v2OpsWindowHours]);
+
+  const v2OpsOfficialEvidenceCount = useMemo(() => {
+    return v2OpsRegionalEvents.filter((row) => isOfficialOpsEvidence(row)).length;
+  }, [v2OpsRegionalEvents]);
+
+  const selectedOpsCountryDef = useMemo(
+    () => threatCountryDefs.find((row) => row.country === v2ThreatCountry) || threatCountryDefs[0] || null,
+    [v2ThreatCountry]
+  );
+
+  const selectedOpsCountryMarkers = useMemo(
+    () => (selectedOpsCountryDef?.markers || []).map((marker) => cleanText(marker).toLowerCase()).filter(Boolean),
+    [selectedOpsCountryDef]
+  );
+
+  const v2FlightSnapshots = useMemo(() => {
+    const rows = v2OpsRegionalEvents.filter((row) => row.source_type === "flight");
+    const byFlight = new Map();
+    for (const row of rows) {
+      const detailsMap = new Map(parseDetailsTokens(row.details));
+      const key = cleanText(
+        detailsMap.get("callsign") ||
+          detailsMap.get("flight_id") ||
+          detailsMap.get("icao24") ||
+          row.title ||
+          `flight-${row.id}`
+      ).toUpperCase();
+      if (!key || byFlight.has(key)) continue;
+      const speed = parseLooseNumber(
+        detailsMap.get("speed_kt") || detailsMap.get("speed") || detailsMap.get("ground_speed") || detailsMap.get("velocity_mps")
+      );
+      const altitude = parseLooseNumber(detailsMap.get("baro_alt_m") || detailsMap.get("geo_alt_m") || detailsMap.get("altitude"));
+      const onGround = parseLooseBoolean(detailsMap.get("on_ground"));
+      const statusText = [eventText(row), cleanText(detailsMap.get("status"))].join(" ");
+      const airborneLikely =
+        onGround === false || (altitude != null && altitude > 300) || (speed != null && speed > 35) || /(airborne|en route|in air|في الجو)/.test(statusText);
+      const landedLikely = onGround === true || /(landed|arrived|هبوط|وصلت)/.test(statusText);
+      const takeoffLikely =
+        /(takeoff|departed|إقلاع|أقلعت)/.test(statusText) || (airborneLikely && !landedLikely && (speed || 0) > 40 && (altitude || 0) > 200);
+      const typeText = [detailsMap.get("aircraft_type"), row.title, row.summary, row.details].filter(Boolean).join(" ");
+      const coords = sanitizeLatLon(
+        row.latitude ?? parseLooseNumber(detailsMap.get("lat") || detailsMap.get("latitude")),
+        row.longitude ?? parseLooseNumber(detailsMap.get("lon") || detailsMap.get("longitude") || detailsMap.get("lng"))
+      );
+      const currentCountry = coords ? inferCountryByCoords(coords.lat, coords.lon, 460) : "";
+      const origIata = normalizeTransportValue(detailsMap.get("orig_iata") || detailsMap.get("origin_iata"));
+      const destIata = normalizeTransportValue(detailsMap.get("dest_iata") || detailsMap.get("destination_iata"));
+      const origIcao = normalizeTransportValue(detailsMap.get("orig_icao") || detailsMap.get("origin_icao"));
+      const destIcao = normalizeTransportValue(detailsMap.get("dest_icao") || detailsMap.get("destination_icao"));
+      const fromPort = normalizeTransportValue(detailsMap.get("from_port") || detailsMap.get("origin")) || origIata || origIcao;
+      const toPort = normalizeTransportValue(detailsMap.get("to_port") || detailsMap.get("destination")) || destIata || destIcao;
+      const fromCountryRaw = normalizeTransportValue(detailsMap.get("from_country") || detailsMap.get("origin_country"));
+      const toCountryRaw = normalizeTransportValue(detailsMap.get("to_country") || detailsMap.get("destination_country"));
+      const fromCountry = fromCountryRaw || inferCountryFromIcaoCode(origIcao) || (isUaeAirportCode(fromPort) ? "UAE" : "") || currentCountry;
+      const toCountry = toCountryRaw || inferCountryFromIcaoCode(destIcao) || (isUaeAirportCode(toPort) ? "UAE" : "");
+      const routeScopeText = cleanText(
+        [
+          fromCountry,
+          toCountry,
+          fromPort,
+          toPort,
+          currentCountry,
+          normalizeTransportValue(detailsMap.get("country")),
+          row.location,
+        ]
+          .filter(Boolean)
+          .join(" ")
+      ).toLowerCase();
+      const touchesSelectedCountryByRoute = selectedOpsCountryMarkers.some((marker) => marker && routeScopeText.includes(marker));
+      const hasRouteHints = [fromCountry, toCountry, fromPort, toPort].some(Boolean);
+      const touchesSelectedCountryByPosition = !hasRouteHints && isInsideCountryOpsRadius(row, selectedOpsCountryDef, 450);
+      const touchesSelectedCountry = touchesSelectedCountryByRoute || touchesSelectedCountryByPosition;
+      if (!touchesSelectedCountry) continue;
+      byFlight.set(key, {
+        key,
+        row,
+        speed,
+        altitude,
+        onGround,
+        airborneLikely,
+        landedLikely,
+        takeoffLikely,
+        fromCountry,
+        toCountry,
+        fromPort,
+        toPort,
+        origIata,
+        destIata,
+        origIcao,
+        destIcao,
+        currentCountry,
+        heading: parseLooseNumber(detailsMap.get("heading") || detailsMap.get("track")),
+        aircraftType: normalizeTransportValue(detailsMap.get("aircraft_type")),
+        flightType: classifyFlightType(typeText),
+        assessment: toArabicOperationalAssessment(row.ai_assessment, row.severity),
+      });
+    }
+    return [...byFlight.values()];
+  }, [v2OpsRegionalEvents, selectedOpsCountryMarkers, selectedOpsCountryDef]);
+
+  const v2MarineSensorSnapshots = useMemo(() => {
+    const rows = v2OpsRegionalEvents.filter((row) => row.source_type === "marine");
+    const byShip = new Map();
+    for (const row of rows) {
+      if (!rowMatchesCountryMarkersForOps(row, selectedOpsCountryMarkers)) continue;
+      const detailsMap = new Map(parseDetailsTokens(row.details));
+      const key = cleanText(
+        detailsMap.get("mmsi") ||
+          detailsMap.get("ship_name") ||
+          detailsMap.get("vessel") ||
+          normalizeStoryTitle(row.title) ||
+          `ship-${row.id}`
+      ).toUpperCase();
+      if (!key || byShip.has(key)) continue;
+      const speedKn = parseLooseNumber(detailsMap.get("speed_kn") || detailsMap.get("speed") || detailsMap.get("sog"));
+      const status = cleanText(detailsMap.get("status") || row.summary || "");
+      const text = [row.title, row.summary, row.details].filter(Boolean).join(" ");
+      const lat = row.latitude ?? parseLooseNumber(detailsMap.get("lat") || detailsMap.get("latitude"));
+      const lon = row.longitude ?? parseLooseNumber(detailsMap.get("lon") || detailsMap.get("longitude") || detailsMap.get("lng"));
+      const fromCountry = normalizeTransportValue(detailsMap.get("from_country") || detailsMap.get("country"));
+      const toCountry = normalizeTransportValue(detailsMap.get("to_country") || detailsMap.get("destination_country"));
+      const fromPort = normalizeTransportValue(detailsMap.get("from_port") || detailsMap.get("home_port") || detailsMap.get("origin_port"));
+      const toPort = normalizeTransportValue(detailsMap.get("to_port") || detailsMap.get("destination_port") || detailsMap.get("destination"));
+      const movingLikely =
+        (speedKn != null && speedKn > 0.5) || /(underway|moving|sailing|en route|متحرك|إبحار|في الطريق)/i.test(`${status} ${text}`);
+      byShip.set(key, {
+        key,
+        row,
+        speedKn,
+        status,
+        movingLikely,
+        shipType: classifyShipType(text),
+        cargoType: classifyCargoType(text),
+        fromCountry,
+        toCountry,
+        fromPort,
+        toPort,
+        vesselTypeSpecific: normalizeTransportValue(detailsMap.get("vessel_type_specific") || detailsMap.get("type_specific")),
+        lat,
+        lon,
+        sourceKind: "sensor",
+        highLevel: toArabicOperationalAssessment(row.ai_assessment, row.severity),
+      });
+    }
+    return [...byShip.values()];
+  }, [v2OpsRegionalEvents, selectedOpsCountryMarkers]);
+
+  const v2MarineIntelSnapshots = useMemo(() => {
+    const rows = v2OpsRegionalEvents.filter((row) => isMarineIntelLike(row));
+    const byStory = new Map();
+    for (const row of rows) {
+      if (!rowMatchesCountryMarkersForOps(row, selectedOpsCountryMarkers)) continue;
+      const key = extractShipDisplayName(row).toUpperCase();
+      if (!key || byStory.has(key)) continue;
+      const text = [row.title, row.summary, row.details, row.ai_assessment].filter(Boolean).join(" ");
+      const inferred = inferOpsGeoHint(text);
+      const movingLikely = /(moving|sailing|en route|transit|passage|متحرك|إبحار|عبور|مرور)/i.test(text);
+      byStory.set(key, {
+        key,
+        row,
+        speedKn: null,
+        status: "خبر بحري من مصدر إعلامي",
+        movingLikely,
+        shipType: classifyShipType(text),
+        cargoType: classifyCargoType(text),
+        fromCountry: "",
+        toCountry: "",
+        fromPort: "",
+        toPort: "",
+        vesselTypeSpecific: "",
+        lat: row.latitude ?? inferred?.lat ?? null,
+        lon: row.longitude ?? inferred?.lon ?? null,
+        sourceKind: "intel",
+        highLevel: toArabicOperationalAssessment(row.ai_assessment, row.severity),
+      });
+    }
+    return [...byStory.values()].sort((a, b) => byDateDesc(eventDisplayTime(a.row), eventDisplayTime(b.row)));
+  }, [v2OpsRegionalEvents, selectedOpsCountryMarkers]);
+
+  const v2FlightIntelSnapshots = useMemo(() => {
+    const rows = v2OpsRegionalEvents.filter((row) => isFlightIntelLike(row) && row.source_type !== "flight");
+    const byStory = new Map();
+    for (const row of rows) {
+      if (!rowMatchesCountryMarkersForOps(row, selectedOpsCountryMarkers)) continue;
+      const media = detectMediaFromEvent(row);
+      if (!media.videoUrl && !media.imageUrl) continue;
+      const storyKey = eventStoryDedupKey(row);
+      if (!storyKey || byStory.has(storyKey)) continue;
+      const detailsMap = new Map(parseDetailsTokens(row.details));
+      const text = [row.title, row.summary, row.details, row.ai_assessment].filter(Boolean).join(" ");
+      const inferred = inferOpsGeoHint(text);
+      const lat = row.latitude ?? inferred?.lat ?? null;
+      const lon = row.longitude ?? inferred?.lon ?? null;
+      const currentCountry = inferCountryByCoords(lat, lon, 500);
+      const fromCountry = normalizeTransportValue(detailsMap.get("from_country") || detailsMap.get("origin_country")) || currentCountry;
+      const toCountry = normalizeTransportValue(detailsMap.get("to_country") || detailsMap.get("destination_country"));
+      const fromPort = normalizeTransportValue(detailsMap.get("from_port") || detailsMap.get("origin"));
+      const toPort = normalizeTransportValue(detailsMap.get("to_port") || detailsMap.get("destination"));
+      byStory.set(storyKey, {
+        key: normalizeStoryTitle(row.title) || `intel-flight-${row.id}`,
+        row,
+        speed: parseLooseNumber(detailsMap.get("speed_kt") || detailsMap.get("speed")),
+        altitude: parseLooseNumber(detailsMap.get("altitude") || detailsMap.get("baro_alt_m")),
+        fromCountry,
+        toCountry,
+        fromPort,
+        toPort,
+        currentCountry,
+        flightType: classifyFlightType(text),
+        aircraftType: normalizeTransportValue(detailsMap.get("aircraft_type")),
+        assessment: toArabicOperationalAssessment(row.ai_assessment, row.severity),
+        media,
+        lat,
+        lon,
+        sourceKind: "intel",
+      });
+    }
+    return [...byStory.values()].sort((a, b) => byDateDesc(eventDisplayTime(a.row), eventDisplayTime(b.row)));
+  }, [v2OpsRegionalEvents, selectedOpsCountryMarkers]);
+
+  const v2ThreatIntelSnapshots = useMemo(() => {
+    const rows = v2OpsRegionalEvents.filter((row) => isThreatIntelLike(row));
+    const byStory = new Map();
+    for (const row of rows) {
+      if (!rowMatchesCountryMarkersForOps(row, selectedOpsCountryMarkers)) continue;
+      const media = detectMediaFromEvent(row);
+      if (!media.videoUrl && !media.imageUrl) continue;
+      const storyKey = eventStoryDedupKey(row);
+      if (!storyKey || byStory.has(storyKey)) continue;
+      const text = [row.title, row.summary, row.details, row.ai_assessment].filter(Boolean).join(" ");
+      const inferred = inferOpsGeoHint(text);
+      const lat = row.latitude ?? inferred?.lat ?? null;
+      const lon = row.longitude ?? inferred?.lon ?? null;
+      const signalKind = inferThreatSignalKind(text);
+      byStory.set(storyKey, {
+        key: normalizeStoryTitle(row.title) || `intel-threat-${row.id}`,
+        row,
+        lat,
+        lon,
+        signalKind,
+        assessment: toArabicOperationalAssessment(row.ai_assessment, row.severity),
+        media,
+      });
+    }
+    return [...byStory.values()].sort((a, b) => byDateDesc(eventDisplayTime(a.row), eventDisplayTime(b.row)));
+  }, [v2OpsRegionalEvents, selectedOpsCountryMarkers]);
+
+  const v2FlightAllSnapshots = useMemo(() => {
+    const byKey = new Map();
+    for (const row of [...v2FlightSnapshots, ...v2FlightIntelSnapshots]) {
+      const stableKey = cleanText(row?.key || row?.row?.id || "").toUpperCase() || `flight-${row?.row?.id || "na"}`;
+      if (!stableKey || byKey.has(stableKey)) continue;
+      byKey.set(stableKey, row);
+    }
+    return [...byKey.values()];
+  }, [v2FlightSnapshots, v2FlightIntelSnapshots]);
+
+  const v2ShipSnapshots = useMemo(() => {
+    const byShip = new Map();
+    for (const row of [...v2MarineSensorSnapshots, ...v2MarineIntelSnapshots]) {
+      if (!row?.key || byShip.has(row.key)) continue;
+      byShip.set(row.key, row);
+    }
+    return [...byShip.values()];
+  }, [v2MarineSensorSnapshots, v2MarineIntelSnapshots]);
+
+  const v2ThreatEvidenceEvents = useMemo(() => {
+    const threatKeywords = [
+      "missile",
+      "ballistic",
+      "cruise",
+      "drone",
+      "uav",
+      "intercept",
+      "air defense",
+      "صاروخ",
+      "بالستي",
+      "كروز",
+      "مسيّرة",
+      "مسيّرات",
+      "درون",
+      "اعتراض",
+      "دفاع جوي",
+    ];
+    return (events || [])
+      .filter((row) => {
+        if (row.source_type === "flight" || row.source_type === "marine") return false;
+        if (v2TrustedOnly && !isTrustedEvent(row)) return false;
+        const text = eventText(row);
+        if (!threatKeywords.some((keyword) => text.includes(keyword))) return false;
+        return threatCountryDefs.some((countryDef) =>
+          countryDef.markers.some((marker) => text.includes(cleanText(marker).toLowerCase()))
+        );
+      })
+      .sort((a, b) => {
+        const aTs = parsePossiblyDate(eventDisplayTime(a))?.getTime() ?? 0;
+        const bTs = parsePossiblyDate(eventDisplayTime(b))?.getTime() ?? 0;
+        return aTs - bTs;
+      });
+  }, [events, v2TrustedOnly]);
+
+  const v2ThreatRows = useMemo(() => {
+    const rows = threatCountryDefs.map((countryDef) => {
+      const signalCumulativeByStory = { ballistic: new Map(), cruise: new Map(), drones: new Map() };
+      const signalIncrementByStory = { ballistic: new Map(), cruise: new Map(), drones: new Map() };
+      const mentionOnlyByStory = {
+        ballistic: new Set(),
+        cruise: new Set(),
+        drones: new Set(),
+      };
+      const storyMentions = new Set();
+      for (const eventRow of v2ThreatEvidenceEvents) {
+        const text = [eventRow.title, eventRow.summary, eventRow.details, eventRow.ai_assessment, eventRow.tags].filter(Boolean).join(" ");
+        const lower = cleanText(text).toLowerCase();
+        if (!countryDef.markers.some((marker) => lower.includes(marker.toLowerCase()))) continue;
+        const storyKey = eventStoryDedupKey(eventRow);
+        storyMentions.add(storyKey);
+        for (const signal of threatSignalDefs) {
+          const value = extractSignalMaxFromText(text, signal.patterns, {
+            maxValue: THREAT_SIGNAL_MAX_VALUE,
+            maxDigits: THREAT_SIGNAL_MAX_DIGITS,
+          });
+          if (value != null) {
+            if (isCumulativeThreatStatement(text)) {
+              const previous = signalCumulativeByStory[signal.key].get(storyKey) || 0;
+              signalCumulativeByStory[signal.key].set(storyKey, Math.max(previous, value));
+            } else {
+              const previous = signalIncrementByStory[signal.key].get(storyKey) || 0;
+              signalIncrementByStory[signal.key].set(storyKey, Math.max(previous, value));
+            }
+            mentionOnlyByStory[signal.key].delete(storyKey);
+            continue;
+          }
+          if (hasSignalMention(text, signal.mentionPatterns)) {
+            if (!signalCumulativeByStory[signal.key].has(storyKey) && !signalIncrementByStory[signal.key].has(storyKey)) {
+              mentionOnlyByStory[signal.key].add(storyKey);
+            }
+          }
+        }
+      }
+      // Cumulative board logic:
+      // - Official "since start" snapshots contribute as a running baseline (max).
+      // - Incident-level numeric stories contribute as additive increments.
+      // - Mention-only stories contribute +1 when no explicit number exists.
+      const cumulativePlusIncrements = (cumulativeMap, incrementMap, mentionSet) => {
+        const baseline = [...cumulativeMap.values()].reduce((max, value) => Math.max(max, Number(value) || 0), 0);
+        const increments = [...incrementMap.values()].reduce((sum, value) => sum + (Number(value) || 0), 0);
+        return baseline + increments + mentionSet.size;
+      };
+      const totals = {
+        ballistic: cumulativePlusIncrements(
+          signalCumulativeByStory.ballistic,
+          signalIncrementByStory.ballistic,
+          mentionOnlyByStory.ballistic
+        ),
+        cruise: cumulativePlusIncrements(signalCumulativeByStory.cruise, signalIncrementByStory.cruise, mentionOnlyByStory.cruise),
+        drones: cumulativePlusIncrements(signalCumulativeByStory.drones, signalIncrementByStory.drones, mentionOnlyByStory.drones),
+      };
+      const mentions = storyMentions.size;
+      return {
+        country: countryDef.country,
+        country_ar: countryDef.country_ar,
+        lat: countryDef.lat,
+        lon: countryDef.lon,
+        ballistic: totals.ballistic > 0 ? String(totals.ballistic) : mentions > 0 ? "مرصود بلا رقم" : "غير متاح",
+        cruise: totals.cruise > 0 ? String(totals.cruise) : mentions > 0 ? "مرصود بلا رقم" : "غير متاح",
+        drones: totals.drones > 0 ? String(totals.drones) : mentions > 0 ? "مرصود بلا رقم" : "غير متاح",
+        mentions,
+        signal_mentions: mentionOnlyByStory.ballistic.size + mentionOnlyByStory.cruise.size + mentionOnlyByStory.drones.size,
+      };
+    });
+    const ordered = [...rows].sort((a, b) => b.mentions - a.mentions || a.country_ar.localeCompare(b.country_ar, "ar"));
+    return ordered.map((row) => ({ ...row, selected: row.country === v2ThreatCountry }));
+  }, [v2ThreatEvidenceEvents, v2ThreatCountry]);
+
+  useEffect(() => {
+    if (!v2ThreatRows.length) return;
+    if (!v2ThreatRows.some((row) => row.country === v2ThreatCountry)) {
+      setV2ThreatCountry(v2ThreatRows[0].country);
+    }
+  }, [v2ThreatRows, v2ThreatCountry]);
+
+  const v2ThreatTotals = useMemo(() => {
+    const toNum = (value) =>
+      parseLocalizedInteger(normalizeThreatValue(value), {
+        maxValue: THREAT_SIGNAL_MAX_VALUE,
+        maxDigits: THREAT_SIGNAL_MAX_DIGITS,
+      });
+    let ballistic = 0;
+    let cruise = 0;
+    let drones = 0;
+    for (const row of v2ThreatRows) {
+      ballistic += toNum(row.ballistic) || 0;
+      cruise += toNum(row.cruise) || 0;
+      drones += toNum(row.drones) || 0;
+    }
+    return { ballistic, cruise, drones };
+  }, [v2ThreatRows]);
+
+  const v2OpsStats = useMemo(() => {
+    const takeoffs = v2FlightAllSnapshots.filter((row) => row.takeoffLikely).length;
+    const airborne = v2FlightAllSnapshots.filter((row) => row.airborneLikely).length;
+    const landed = v2FlightAllSnapshots.filter((row) => row.landedLikely).length;
+    const shipsMoving = v2ShipSnapshots.filter((row) => row.movingLikely).length;
+    const sensorFlights = v2FlightSnapshots.filter((row) => row?.sourceKind !== "intel");
+    const uaeFlights = sensorFlights.map((row) => {
+      const fromUae =
+        isUaeCountryValue(row.fromCountry) || isUaeAirportCode(row.fromPort || row.origIata) || isUaeIcaoCode(row.origIcao);
+      const toUae = isUaeCountryValue(row.toCountry) || isUaeAirportCode(row.toPort || row.destIata) || isUaeIcaoCode(row.destIcao);
+      return { ...row, fromUae, toUae };
+    });
+    const uaeIncoming = uaeFlights.filter((row) => row.toUae && !row.fromUae).length;
+    const uaeOutgoing = uaeFlights.filter((row) => row.fromUae && !row.toUae).length;
+    const uaeDomestic = uaeFlights.filter((row) => row.fromUae && row.toUae).length;
+    const uaeTouching = uaeFlights.filter((row) => row.fromUae || row.toUae);
+    return {
+      takeoffs,
+      airborne,
+      landed,
+      shipsMoving,
+      marineIntelSignals: v2MarineIntelSnapshots.length,
+      flightTypeCounts: summarizeCounts(v2FlightAllSnapshots.map((row) => row.flightType)),
+      shipTypeCounts: summarizeCounts(v2ShipSnapshots.map((row) => row.shipType)),
+      cargoTypeCounts: summarizeCounts(v2ShipSnapshots.map((row) => row.cargoType)),
+      uaeIncoming,
+      uaeOutgoing,
+      uaeDomestic,
+      uaeTouchingCount: uaeTouching.length,
+      uaeFlightTypeCounts: summarizeCounts(uaeTouching.map((row) => row.flightType)),
+    };
+  }, [v2FlightAllSnapshots, v2FlightSnapshots, v2ShipSnapshots, v2MarineIntelSnapshots]);
+
+  const v2OpsMapPoints = useMemo(() => {
+    const points = [];
+    if (safeV2OpsLayers.threats) {
+      const threatRow = v2ThreatRows.find((row) => row.country === v2ThreatCountry) || v2ThreatRows[0];
+      if (threatRow) {
+        const coords = sanitizeLatLon(threatRow.lat, threatRow.lon);
+        if (coords) {
+        points.push({
+          id: `threat-${threatRow.country}`,
+          type: "threat",
+          icon: opsTypeIcon("threat"),
+          label: `تهديدات ${threatRow.country_ar}`,
+          sub: `${normalizeThreatValue(threatRow.ballistic)} بالستي | ${normalizeThreatValue(threatRow.cruise)} كروز | ${normalizeThreatValue(
+            threatRow.drones
+          )} مسيّرات`,
+          note: `قيم تراكمية من جميع الإشارات الموثوقة المحمّلة (${threatRow.mentions} إشارات مرتبطة بالدولة).`,
+          lat: coords.lat,
+          lon: coords.lon,
+          rowId: null,
+        });
+        }
+      }
+    }
+    if (safeV2OpsLayers.air) {
+      for (const flight of v2FlightAllSnapshots.slice(0, 22)) {
+        const row = flight.row;
+        const coords = sanitizeLatLon(row.latitude ?? flight.lat, row.longitude ?? flight.lon);
+        if (!coords) continue;
+        const pointType = flight.sourceKind === "intel" ? "air-intel" : "air";
+        points.push({
+          id: `air-${row.id}`,
+          type: pointType,
+          icon: opsTypeIcon(pointType),
+          label: `رحلة ${flight.key}`,
+          sub: `${flight.flightType} | ${routeArrowSummary(flight.fromCountry, flight.toCountry)} | ${routeArrowSummary(
+            flight.fromPort,
+            flight.toPort
+          )}`,
+          note: `${flight.assessment}${flight.currentCountry ? ` | التمركز الحالي: ${flight.currentCountry}` : ""}`,
+          lat: coords.lat,
+          lon: coords.lon,
+          rowId: row.id,
+        });
+      }
+    }
+    if (safeV2OpsLayers.marine) {
+      for (const ship of v2ShipSnapshots) {
+        const coords = sanitizeLatLon(ship.lat, ship.lon);
+        if (!coords) continue;
+        const pointType = ship.sourceKind === "intel" ? "marine-intel" : "marine";
+        points.push({
+          id: `${ship.sourceKind === "intel" ? "marine-intel" : "ship"}-${ship.row.id}`,
+          type: pointType,
+          icon: opsTypeIcon(pointType),
+          label: `سفينة ${ship.key}`,
+          sub: `${ship.shipType} | ${routeArrowSummary(ship.fromCountry, ship.toCountry)} | ${routeArrowSummary(
+            ship.fromPort,
+            ship.toPort
+          )}`,
+          note: ship.highLevel,
+          lat: coords.lat,
+          lon: coords.lon,
+          rowId: ship.row.id,
+        });
+      }
+    }
+    if (safeV2OpsLayers.threats) {
+      for (const intel of v2ThreatIntelSnapshots.slice(0, 18)) {
+        const coords = sanitizeLatLon(intel.lat, intel.lon);
+        if (!coords) continue;
+        const icon = intel.signalKind === "drones" ? "🛸" : intel.signalKind === "cruise" ? "🎯" : "🚀";
+        points.push({
+          id: `threat-intel-${intel.row.id}`,
+          type: "threat-intel",
+          icon,
+          label: "إشارة تهديد إعلامية",
+          sub: `${displayText(intel.row.title).slice(0, 120)}`,
+          note: intel.assessment,
+          lat: coords.lat,
+          lon: coords.lon,
+          rowId: intel.row.id,
+        });
+      }
+    }
+    return points;
+  }, [safeV2OpsLayers, v2ThreatCountry, v2ThreatRows, v2FlightAllSnapshots, v2ShipSnapshots, v2ThreatIntelSnapshots]);
+
+  useEffect(() => {
+    if (!v2OpsMapPoints.length) {
+      if (v2OpsFocusPointId) setV2OpsFocusPointId(null);
+      return;
+    }
+    if (!v2OpsFocusPointId || !v2OpsMapPoints.some((point) => point.id === v2OpsFocusPointId)) {
+      setV2OpsFocusPointId(v2OpsMapPoints[0].id);
+    }
+  }, [v2OpsMapPoints, v2OpsFocusPointId]);
+
+  useEffect(() => {
+    if (!v2OpsHoveredPointId) return;
+    if (!v2OpsMapPoints.some((point) => point.id === v2OpsHoveredPointId)) {
+      setV2OpsHoveredPointId(null);
+    }
+  }, [v2OpsMapPoints, v2OpsHoveredPointId]);
+
+  const v2OpsFocusPoint = useMemo(
+    () => v2OpsMapPoints.find((point) => point.id === v2OpsFocusPointId) || v2OpsMapPoints[0] || null,
+    [v2OpsMapPoints, v2OpsFocusPointId]
+  );
+
+  const v2OpsHoverPoint = useMemo(
+    () => v2OpsMapPoints.find((point) => point.id === v2OpsHoveredPointId) || v2OpsFocusPoint || null,
+    [v2OpsMapPoints, v2OpsHoveredPointId, v2OpsFocusPoint]
+  );
+
+  const v2OpsPointByRowId = useMemo(() => {
+    const out = new Map();
+    for (const point of v2OpsMapPoints) {
+      if (!point.rowId || out.has(point.rowId)) continue;
+      out.set(point.rowId, point);
+    }
+    return out;
+  }, [v2OpsMapPoints]);
+
+  const v2OpsActiveEvent = useMemo(() => {
+    const rowId = v2OpsHoverPoint?.rowId || v2OpsFocusPoint?.rowId;
+    if (!rowId) return null;
+    return eventsById.get(rowId) || null;
+  }, [v2OpsHoverPoint, v2OpsFocusPoint, eventsById]);
+
+  const v2OpsActiveMedia = useMemo(() => detectMediaFromEvent(v2OpsActiveEvent), [v2OpsActiveEvent]);
+
+  const v2FlightDisplayItems = useMemo(() => {
+    const items = [];
+    for (const flight of v2FlightAllSnapshots) {
+      const point = v2OpsPointByRowId.get(flight.row.id) || null;
+      const media = flight.media || detectMediaFromEvent(flight.row);
+      items.push({ ...flight, point, media, sourceKind: flight.sourceKind || "sensor" });
+    }
+    return items;
+  }, [v2FlightAllSnapshots, v2OpsPointByRowId]);
+
+  const v2FlightMapMediaItems = useMemo(() => {
+    const items = [];
+    for (const flight of v2FlightDisplayItems) {
+      if (!flight.point) continue;
+      const media = flight.media;
+      if (!media.videoUrl && !media.imageUrl) continue;
+      items.push(flight);
+    }
+    return items;
+  }, [v2FlightDisplayItems]);
+
+  const v2ShipDisplayItems = useMemo(() => {
+    const items = [];
+    for (const ship of v2ShipSnapshots) {
+      const point = v2OpsPointByRowId.get(ship.row.id) || null;
+      const media = detectMediaFromEvent(ship.row);
+      items.push({ ...ship, point, media });
+    }
+    return items;
+  }, [v2ShipSnapshots, v2OpsPointByRowId]);
+
+  const v2ShipMapMediaItems = useMemo(() => {
+    const items = [];
+    for (const ship of v2ShipDisplayItems) {
+      if (!ship.point) continue;
+      const media = ship.media;
+      if (!media.videoUrl && !media.imageUrl) continue;
+      items.push(ship);
+    }
+    return items;
+  }, [v2ShipDisplayItems]);
+
+  useEffect(() => {
+    if (!v2SectionOpen.opsBoard) return;
+    const container = v2OpsMapContainerRef.current;
+    if (!container || v2OpsLeafletMapRef.current) return;
+    const map = L.map(container, {
+      center: [24.4539, 54.3773],
+      zoom: 5,
+      minZoom: 3,
+      maxZoom: 13,
+      worldCopyJump: true,
+      zoomControl: true,
+      attributionControl: true,
+    });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(map);
+    const layer = L.layerGroup().addTo(map);
+    v2OpsLeafletMapRef.current = map;
+    v2OpsLeafletLayerRef.current = layer;
+    return () => {
+      layer.clearLayers();
+      map.remove();
+      v2OpsLeafletLayerRef.current = null;
+      v2OpsLeafletMapRef.current = null;
+    };
+  }, [v2SectionOpen.opsBoard]);
+
+  useEffect(() => {
+    const map = v2OpsLeafletMapRef.current;
+    const layer = v2OpsLeafletLayerRef.current;
+    if (!map || !layer) return;
+    layer.clearLayers();
+    for (const point of v2OpsMapPoints) {
+      const coords = sanitizeLatLon(point.lat, point.lon);
+      if (!coords) continue;
+      const markerClass = `v2-map-marker-dot ${point.type} ${v2OpsFocusPoint?.id === point.id ? "active" : ""}`;
+      const marker = L.marker([coords.lat, coords.lon], {
+        icon: L.divIcon({
+          className: "v2-map-div-icon",
+          html: `<span class="${markerClass}">${point.icon || opsTypeIcon(point.type)}</span>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        }),
+      });
+      marker.on("mouseover", () => setV2OpsHoveredPointId(point.id));
+      marker.on("mouseout", () => setV2OpsHoveredPointId(null));
+      marker.on("click", () => {
+        setV2OpsFocusPointId(point.id);
+        setV2OpsHoveredPointId(point.id);
+        if (point.rowId) focusV2Story(point.rowId, { scroll: false, flash: false });
+        if (point.type === "threat") {
+          const country = point.id.replace("threat-", "");
+          if (country) setV2ThreatCountry(country);
+        }
+      });
+      marker.addTo(layer);
+    }
+  }, [v2OpsMapPoints, v2OpsFocusPoint, v2SectionOpen.opsBoard]);
+
+  useEffect(() => {
+    const map = v2OpsLeafletMapRef.current;
+    if (!map || !v2OpsFocusPoint) return;
+    const coords = sanitizeLatLon(v2OpsFocusPoint.lat, v2OpsFocusPoint.lon);
+    if (!coords) return;
+    const currentZoom = map.getZoom();
+    const targetZoom = Math.max(5, currentZoom);
+    map.flyTo([coords.lat, coords.lon], targetZoom, { duration: 0.45 });
+  }, [v2OpsFocusPoint]);
+
+  useEffect(() => {
+    const map = v2OpsLeafletMapRef.current;
+    if (!map || !v2SectionOpen.opsBoard) return;
+    const timer = setTimeout(() => map.invalidateSize(), 140);
+    return () => clearTimeout(timer);
+  }, [v2SectionOpen.opsBoard, v2OpsMapPoints.length]);
+
   useEffect(() => {
     const valid = new Set(v2Events.map((row) => row.id));
     setV2SelectedEventIds((prev) => prev.filter((id) => valid.has(id)));
@@ -1493,11 +4367,98 @@ export default function App() {
     () => parseOperationalSections(selectedPredictionTicket?.prediction_text || ""),
     [selectedPredictionTicket]
   );
+  const selectedPredictionEvidence = useMemo(() => {
+    if (!selectedPredictionTicket) return [];
+    const range = resolveAnalysisDateRange(activePredictionWorkspace);
+    const markers = buildCountryMarkers(activePredictionWorkspace?.country);
+    const topicText = cleanText(
+      [
+        selectedPredictionTicket?.focus_query,
+        selectedPredictionTicket?.request_text,
+        activePredictionWorkspace?.topic,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    ).toLowerCase();
+    const topicTokens = topicText
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 4)
+      .slice(0, 24);
+    const relatedIds = parseNumericIdList(selectedPredictionTicket?.related_event_ids || "");
+    const merged = new Map();
+    const addRow = (row) => {
+      if (!row?.id || merged.has(row.id)) return;
+      merged.set(row.id, row);
+    };
+    for (const id of relatedIds) {
+      addRow(eventsById.get(id));
+    }
+    for (const row of activeWorkspaceEvidence) {
+      addRow(row);
+    }
+    const scoreRow = (row) => {
+      let score = Number(row?.severity || 1) * 3;
+      const text = eventText(row);
+      const lane = eventLane(row);
+      if (lane !== "geo") score += 1.2;
+      const tokenHits = topicTokens.reduce((acc, token) => (token && text.includes(token) ? acc + 1 : acc), 0);
+      score += Math.min(5, tokenHits * 0.7);
+      const ageMins = minutesSince(eventDisplayTime(row));
+      if (Number.isFinite(ageMins)) score += Math.max(0, 4 - ageMins / 120);
+      return score;
+    };
+    return [...merged.values()]
+      .filter((row) => eventInsideRange(row, range) && eventMatchesCountry(row, markers))
+      .sort((a, b) => scoreRow(b) - scoreRow(a) || byDateDesc(eventDisplayTime(a), eventDisplayTime(b)))
+      .slice(0, 24);
+  }, [selectedPredictionTicket, activePredictionWorkspace, eventsById, activeWorkspaceEvidence]);
+
+  const selectedMitigationContent = useMemo(
+    () =>
+      enrichMitigationSection(
+        selectedPredictionSections.MITIGATION,
+        activePredictionWorkspace,
+        selectedPredictionTicket,
+        selectedPredictionEvidence
+      ),
+    [selectedPredictionSections, activePredictionWorkspace, selectedPredictionTicket, selectedPredictionEvidence]
+  );
+
+  const selectedSpecialistAnalysisContent = useMemo(
+    () =>
+      buildSpecialistAnalysisBox({
+        workspace: activePredictionWorkspace,
+        ticket: selectedPredictionTicket,
+        evidenceRows: selectedPredictionEvidence,
+      }),
+    [activePredictionWorkspace, selectedPredictionTicket, selectedPredictionEvidence]
+  );
 
   const activeVideoSource = useMemo(
     () => skyVideoSources.find((row) => row.id === selectedVideoSourceId) || skyVideoSources[0],
     [selectedVideoSourceId]
   );
+  const activeVideoEmbeds = useMemo(() => videoEmbedCandidates(activeVideoSource), [activeVideoSource]);
+  const activeVideoEmbedIndex = useMemo(() => {
+    const raw = Number(videoEmbedIndexBySource?.[activeVideoSource?.id] || 0);
+    if (!Number.isFinite(raw)) return 0;
+    return Math.max(0, Math.floor(raw));
+  }, [videoEmbedIndexBySource, activeVideoSource]);
+  const activeVideoEmbedUrl = useMemo(() => {
+    if (!activeVideoEmbeds.length) return activeVideoSource?.embedUrl || "";
+    return activeVideoEmbeds[activeVideoEmbedIndex % activeVideoEmbeds.length];
+  }, [activeVideoEmbeds, activeVideoEmbedIndex, activeVideoSource]);
+  const cycleActiveVideoEmbed = useCallback(() => {
+    const sourceId = activeVideoSource?.id;
+    const total = activeVideoEmbeds.length;
+    if (!sourceId || total <= 1) return;
+    setVideoEmbedIndexBySource((prev) => {
+      const current = Number(prev?.[sourceId] || 0);
+      const next = Number.isFinite(current) ? (current + 1) % total : 1 % total;
+      return { ...prev, [sourceId]: next };
+    });
+  }, [activeVideoSource, activeVideoEmbeds.length]);
 
   const visibleInsights = useMemo(
     () =>
@@ -1516,10 +4477,20 @@ export default function App() {
   );
 
   const openAiConnected = aiStatus.configured && aiStatus.connected && privacy.openai_enabled;
+  const jsonCargoState = cleanText(jsonCargoStatus.state || "unknown").toLowerCase();
+  const jsonCargoQuotaExceeded = jsonCargoState === "quota_exceeded";
+  const jsonCargoConnected = jsonCargoState === "ok";
+  const jsonCargoStatusLabel = jsonCargoQuotaExceeded
+    ? "Quota Exceeded"
+    : jsonCargoConnected
+      ? "Connected"
+      : jsonCargoState === "not_configured"
+        ? "Not Configured"
+        : jsonCargoStatus.message || "Unavailable";
   const liveIngestionConnected = useMemo(() => {
     if (ingestionRunning) return true;
     if (!lastSync) return false;
-    const timestamp = new Date(lastSync).getTime();
+    const timestamp = parsePossiblyDate(lastSync)?.getTime() ?? Number.NaN;
     if (!Number.isFinite(timestamp)) return false;
     return Date.now() - timestamp <= 90 * 1000;
   }, [lastSync, ingestionRunning]);
@@ -1636,21 +4607,111 @@ export default function App() {
     setSelectedSourceNames(picked);
   }
 
+  function toggleV2Section(sectionKey) {
+    setV2SectionOpen((prev) => ({ ...prev, [sectionKey]: !prev[sectionKey] }));
+  }
+
+  function toggleV2OpsLayer(layerKey) {
+    setV2OpsLayers((prev) => {
+      const safe = {
+        air: true,
+        marine: true,
+        threats: true,
+        ...(prev && typeof prev === "object" ? prev : {}),
+      };
+      if (!Object.prototype.hasOwnProperty.call(safe, layerKey)) return safe;
+      const next = { ...safe, [layerKey]: !safe[layerKey] };
+      // Keep at least one layer enabled to avoid empty-state map crashes.
+      if (!next.air && !next.marine && !next.threats) {
+        next[layerKey] = true;
+      }
+      return next;
+    });
+  }
+
+  function focusV2OpsBoard() {
+    setVersionTab("v2");
+    setV2SectionOpen((prev) => ({ ...prev, opsBoard: true }));
+    setTimeout(() => {
+      v2OpsBoardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
+  function markPredictionUpdateSeen(updateId) {
+    if (!updateId) return;
+    setSeenPredictionUpdateIds((prev) => (prev.includes(updateId) ? prev : [...prev, updateId]));
+  }
+
+  async function updatePredictionReviewConfigPatch(patch) {
+    const next = {
+      enabled: Boolean(predictionReviewConfig?.enabled),
+      review_seconds: Number(predictionReviewConfig?.review_seconds || 600),
+      min_interval_minutes: Number(predictionReviewConfig?.min_interval_minutes || 10),
+      ...(patch && typeof patch === "object" ? patch : {}),
+    };
+    const seconds = Number(next.review_seconds || 0);
+    if (!Number.isFinite(seconds) || seconds < 60) return;
+    setSavingPredictionReviewConfig(true);
+    try {
+      const minutes = Math.max(1, Math.round(seconds / 60));
+      const row = await apiPatch("/ai/predictions/review-config", {
+        enabled: Boolean(next.enabled),
+        review_seconds: seconds,
+        min_interval_minutes: minutes,
+      });
+      setPredictionReviewConfig({
+        enabled: Boolean(row?.enabled ?? next.enabled),
+        review_seconds: Number(row?.review_seconds || seconds),
+        min_interval_minutes: Number(row?.min_interval_minutes || minutes),
+      });
+      setError("");
+    } catch (err) {
+      setError(err.message || "فشل تحديث فترة المراجعة الآلية.");
+    } finally {
+      setSavingPredictionReviewConfig(false);
+    }
+  }
+
+  async function updatePredictionReviewInterval(reviewSeconds) {
+    const seconds = Number(reviewSeconds || 0);
+    if (!Number.isFinite(seconds) || seconds < 60) return;
+    await updatePredictionReviewConfigPatch({ review_seconds: seconds });
+  }
+
   function markEventSeen(eventId) {
     if (!eventId) return;
     setSeenEventIds((prev) => (prev.includes(eventId) ? prev : [...prev, eventId]));
   }
 
-  function focusV2Story(eventId) {
+  function focusV2Story(eventId, options = {}) {
     if (!eventId) return;
+    const { scroll = true, flash = true } = options;
     setV2FocusedEventId(eventId);
     markEventSeen(eventId);
     setV2SelectedEventIds((prev) => (prev.includes(eventId) ? prev : [eventId, ...prev]));
-    setV2FocusFlash(true);
-    setTimeout(() => setV2FocusFlash(false), 850);
-    setTimeout(() => {
-      v2FocusPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 0);
+    if (flash) {
+      setV2FocusFlash(true);
+      setTimeout(() => setV2FocusFlash(false), 850);
+    }
+    if (scroll) {
+      setTimeout(() => {
+        v2FocusPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 0);
+    }
+  }
+
+  function focusV2OpsEvent(eventId) {
+    if (!eventId) return;
+    const point = v2OpsPointByRowId.get(eventId);
+    if (point) {
+      setV2OpsFocusPointId(point.id);
+      setV2OpsHoveredPointId(point.id);
+      if (point.type === "threat") {
+        const country = point.id.replace("threat-", "");
+        if (country) setV2ThreatCountry(country);
+      }
+    }
+    focusV2Story(eventId, { scroll: false, flash: false });
   }
 
   function toggleV2Selected(eventId) {
@@ -1659,22 +4720,30 @@ export default function App() {
   }
 
   async function analyzeV2Selected() {
-    const ids = v2SelectedEventIds.length > 0 ? v2SelectedEventIds : v2Events.slice(0, 30).map((row) => row.id);
-    if (ids.length === 0) {
-      setError("لا توجد عناصر في V2 للتحليل.");
-      return;
-    }
     if (!activePredictionWorkspace) {
       setError("لا توجد مساحة تحليل نشطة.");
       return;
     }
     setSubmittingInsight(true);
     try {
+      const baseIds = v2SelectedEventIds.length > 0 ? v2SelectedEventIds : v2Events.slice(0, 30).map((row) => row.id);
+      const ids = await resolveWorkspaceAnalysisEventIds(activePredictionWorkspace, baseIds);
+      if (ids.length === 0) {
+        setError("لا توجد عناصر ضمن الفترة المحددة للتحليل.");
+        return;
+      }
+      const analysisRows = ids
+        .map((id) => eventsById.get(id) || activeWorkspaceEvidenceById.get(id))
+        .filter(Boolean);
+      const transportIntel = buildTransportIntelSummary(analysisRows, activePredictionWorkspace);
       const structuredPrompt = buildOperationalAnalysisTemplate({
         focus: activePredictionWorkspace.predictionFocus,
         country: activePredictionWorkspace.country,
         topic: activePredictionWorkspace.topic,
         userRequest: activePredictionWorkspace.predictionRequest,
+        analysisDateFrom: activePredictionWorkspace.analysisDateFrom,
+        fatalityStats: activeWorkspaceFatalityStats,
+        transportIntel,
       });
       const insight = await apiPost("/ai/insights", {
         title: `تحليل ${activePredictionWorkspace.label}: ${activePredictionWorkspace.predictionFocus || "تركيز عام"}`,
@@ -1695,7 +4764,6 @@ export default function App() {
   }
 
   async function createPredictionTicket() {
-    const ids = v2SelectedEventIds.length > 0 ? v2SelectedEventIds : v2Events.slice(0, 40).map((row) => row.id);
     if (!activePredictionWorkspace) {
       setError("لا توجد مساحة توقع نشطة.");
       return;
@@ -1710,11 +4778,24 @@ export default function App() {
     }
     setCreatingPrediction(true);
     try {
+      const baseIds = v2SelectedEventIds.length > 0 ? v2SelectedEventIds : v2Events.slice(0, 40).map((row) => row.id);
+      const ids = await resolveWorkspaceAnalysisEventIds(activePredictionWorkspace, baseIds);
+      if (ids.length === 0) {
+        setError("لا توجد أحداث ضمن الفترة المحددة لإنشاء التذكرة.");
+        return;
+      }
+      const analysisRows = ids
+        .map((id) => eventsById.get(id) || activeWorkspaceEvidenceById.get(id))
+        .filter(Boolean);
+      const transportIntel = buildTransportIntelSummary(analysisRows, activePredictionWorkspace);
       const structuredRequest = buildOperationalAnalysisTemplate({
         focus: activePredictionWorkspace.predictionFocus,
         country: activePredictionWorkspace.country,
         topic: activePredictionWorkspace.topic,
         userRequest: activePredictionWorkspace.predictionRequest,
+        analysisDateFrom: activePredictionWorkspace.analysisDateFrom,
+        fatalityStats: activeWorkspaceFatalityStats,
+        transportIntel,
       });
       const ticket = await apiPost("/ai/predictions", {
         title: String(activePredictionWorkspace.predictionTitle || "").trim(),
@@ -1743,8 +4824,13 @@ export default function App() {
             activePredictionWorkspace.topic || "N/A"
           }): `
         : "";
+      const selectedRows = v2SelectedEventIds
+        .map((id) => eventsById.get(id) || activeWorkspaceEvidenceById.get(id))
+        .filter(Boolean);
+      const transportIntel = buildTransportIntelSummary(selectedRows, activePredictionWorkspace);
+      const transportNote = transportIntel ? `\n\n[TRANSPORT_INTEL]\n${transportIntel}` : "";
       await apiPost(`/ai/predictions/${ticketId}/update`, {
-        note: `${prefix}${predictionNote.trim()}`.trim(),
+        note: `${prefix}${predictionNote.trim()}${transportNote}`.trim(),
         event_ids: v2SelectedEventIds
       });
       setPredictionNote("");
@@ -1844,6 +4930,18 @@ export default function App() {
   }
 
   async function addPublisherPack() {
+    for (const preset of officialPresetSources) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await apiPost("/sources", preset);
+      } catch {
+        // ignore duplicates
+      }
+    }
+    await loadAll();
+  }
+
+  async function addAllPresetSources() {
     for (const preset of presetSources) {
       try {
         // eslint-disable-next-line no-await-in-loop
@@ -2106,6 +5204,14 @@ export default function App() {
             <strong>OpenAI</strong>
             <small>{openAiConnected ? "Connected" : "Disconnected"}</small>
           </div>
+          <div
+            className={`openai-status ${jsonCargoQuotaExceeded ? "warning" : ""}`}
+            title={jsonCargoStatus.detail || jsonCargoStatus.message || "JSONCargo status"}
+          >
+            <span className={`status-dot ${jsonCargoConnected ? "online" : jsonCargoQuotaExceeded ? "warn" : "offline"}`} />
+            <strong>JSONCargo</strong>
+            <small>{jsonCargoStatusLabel}</small>
+          </div>
           <span className="sync">آخر مزامنة: {formatTime(lastSync)}</span>
         </div>
       </header>
@@ -2144,10 +5250,11 @@ export default function App() {
               <div className="video-main">
                 <iframe
                   title="sky-news-live"
-                  src={forceUnmutedEmbedUrl(activeVideoSource?.embedUrl)}
+                  src={forceUnmutedEmbedUrl(activeVideoEmbedUrl)}
                   loading="lazy"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   referrerPolicy="strict-origin-when-cross-origin"
+                  onError={cycleActiveVideoEmbed}
                   allowFullScreen
                 />
                 <div className="video-live-badge">مباشر</div>
@@ -2158,7 +5265,10 @@ export default function App() {
                     key={source.id}
                     type="button"
                     className={`video-source-btn ${selectedVideoSourceId === source.id ? "active" : ""}`}
-                    onClick={() => setSelectedVideoSourceId(source.id)}
+                    onClick={() => {
+                      setSelectedVideoSourceId(source.id);
+                      setVideoEmbedIndexBySource((prev) => ({ ...prev, [source.id]: 0 }));
+                    }}
                   >
                     {source.label}
                   </button>
@@ -2167,6 +5277,11 @@ export default function App() {
           </div>
 
             <div className="video-open-link">
+              {activeVideoEmbeds.length > 1 ? (
+                <button className="btn btn-small" type="button" onClick={cycleActiveVideoEmbed}>
+                  تبديل رابط البث
+                </button>
+              ) : null}
               <a className="btn btn-small btn-ghost source-link-btn" href={activeVideoSource?.watchUrl} target="_blank" rel="noreferrer">
                 فتح البث المباشر من المصدر
               </a>
@@ -2188,7 +5303,7 @@ export default function App() {
           <label>
             نوع المعلومة
             <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
-              {sourceTypeOptions.map((opt) => (
+              {sourceTypeOptions.filter((opt) => opt.value !== "flight").map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
@@ -2307,8 +5422,12 @@ export default function App() {
           </div>
           <div className="quick-topics">
             <button className="btn btn-accent" type="button" onClick={addPublisherPack}>
-              إضافة باقة المصادر الموثوقة
+              إضافة باقة المصادر الرسمية
             </button>
+            <button className="btn btn-ghost" type="button" onClick={addAllPresetSources}>
+              إضافة كل القوالب
+            </button>
+            <span className="details-meta">ملاحظة: مصادر OpenSky وJSONCargo تعمل عبر واجهات API وقد تتطلب ترخيصًا/مفتاحًا.</span>
             {presetSources.map((preset) => (
               <button key={preset.name} className="btn btn-small" type="button" onClick={() => addPresetSource(preset)}>
                 {preset.name}
@@ -2655,7 +5774,7 @@ export default function App() {
             ) : (
               <div className="detail-layout">
                 <section className="detail-body">
-                  <h3>{displayText(activeEvent.title)}</h3>
+                  <h3>{displayText(sanitizeEventDetailText(activeEvent.title)) || displayText(activeEvent.title)}</h3>
                   <p className="details-meta">
                     {sourceTypeLabel(activeEvent.source_type)} | {formatTime(eventDisplayTime(activeEvent))} | الشدة S{activeEvent.severity} ({severityMeaning(activeEvent.severity)})
                   </p>
@@ -2671,24 +5790,80 @@ export default function App() {
                     <button className="btn btn-accent" type="button" onClick={askAiQuick} disabled={submittingChat}>
                       اسأل الذكاء عن هذا السياق
                     </button>
-                    {activeEvent.url ? (
-                      <a className="btn btn-ghost source-link-btn" href={activeEvent.url} target="_blank" rel="noreferrer">
-                        فتح المصدر
-                      </a>
-                    ) : null}
                   </div>
                   <div className="detail-sections">
                     <article className="detail-block">
                       <h4>الملخص</h4>
-                      <p>{displayText(activeEvent.summary) || "لا يوجد ملخص."}</p>
+                      <p>{displayText(sanitizeEventDetailText(activeEvent.summary || activeEvent.details)) || "لا يوجد ملخص."}</p>
                     </article>
                     <article className="detail-block">
                       <h4>تقييم الذكاء</h4>
-                      <p>{displayText(activeEvent.ai_assessment) || "لا يوجد تقييم إضافي."}</p>
+                      <div className="ai-assessment-view">
+                        <div className="ai-assessment-kpis">
+                          <span className="fact-pill">
+                            <strong>الحكم:</strong> {activeAiAssessment.verdict}
+                          </span>
+                          <span className="fact-pill">
+                            <strong>الثقة:</strong> {activeAiAssessment.confidence}% ({activeAiAssessment.confidenceLabel})
+                          </span>
+                        </div>
+                        <p>{displayText(activeAiAssessment.operationalSummary) || "لا يوجد تقييم إضافي."}</p>
+                        {activeAiAssessment.actions.length > 0 ? (
+                          <div className="ai-assessment-group">
+                            <h5>اقتراحات الذكاء</h5>
+                            <ul>
+                              {activeAiAssessment.actions.map((item, index) => (
+                                <li key={`active-ai-action-${index}`}>{displayText(item)}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {activeAiAssessment.impact ? (
+                          <div className="ai-assessment-group">
+                            <h5>أثر الخبر على الوضع (إيجابي/سلبي)</h5>
+                            <ul>
+                              <li><strong>قراءة مختصرة:</strong> {displayText(activeAiAssessment.impact.brief)}</li>
+                              <li><strong>الفائدة المحتملة:</strong> {displayText(activeAiAssessment.impact.potentialBenefit)}</li>
+                              <li><strong>الأثر السلبي المحتمل:</strong> {displayText(activeAiAssessment.impact.potentialRisk)}</li>
+                              <li><strong>المحصلة:</strong> {displayText(activeAiAssessment.impact.netImpact)}</li>
+                            </ul>
+                          </div>
+                        ) : null}
+                        {activeAiAssessment.evidence.length > 0 ? (
+                          <div className="ai-assessment-group">
+                            <h5>أهم الأدلة المختصرة</h5>
+                            <ul>
+                              {activeAiAssessment.evidence.map((item, index) => (
+                                <li key={`active-ai-evidence-${index}`}>{displayText(item)}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {activeAiAssessment.triggers.length > 0 ? (
+                          <div className="ai-assessment-group">
+                            <h5>مؤشرات رفع المستوى</h5>
+                            <ul>
+                              {activeAiAssessment.triggers.map((item, index) => (
+                                <li key={`active-ai-trigger-${index}`}>{displayText(item)}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {activeAiAssessment.missingInfo.length > 0 ? (
+                          <div className="ai-assessment-group">
+                            <h5>بيانات ناقصة لتحسين الدقة</h5>
+                            <ul>
+                              {activeAiAssessment.missingInfo.map((item, index) => (
+                                <li key={`active-ai-missing-${index}`}>{displayText(item)}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </div>
                     </article>
                     <article className="detail-block">
-                      <h4>تفاصيل المصدر</h4>
-                      <p>{displayText(summarizeSourceDetails(activeEvent)) || "لا توجد تفاصيل إضافية."}</p>
+                      <h4>تفاصيل إضافية</h4>
+                      <p>{displayText(sanitizeEventDetailText(summarizeSourceDetails(activeEvent))) || "لا توجد تفاصيل إضافية."}</p>
                     </article>
                   </div>
                   <div className="facts-grid">
@@ -2698,19 +5873,6 @@ export default function App() {
                       </span>
                     ))}
                   </div>
-                </section>
-                <section className="map-card">
-                  <h4>الخريطة التفاعلية</h4>
-                  {mapEvent ? (
-                    <>
-                      <iframe title="event-map" src={mapEmbedUrl(mapEvent.latitude, mapEvent.longitude)} loading="lazy" />
-                      <p>
-                        {mapEvent.location || "موقع الحدث"} | {mapEvent.latitude}, {mapEvent.longitude}
-                      </p>
-                    </>
-                  ) : (
-                    <p>لا توجد إحداثيات لهذا الحدث.</p>
-                  )}
                 </section>
               </div>
             )}
@@ -2964,6 +6126,9 @@ export default function App() {
               <button className="btn btn-accent" type="button" onClick={triggerIngestion}>
                 تحديث فوري
               </button>
+              <button className="btn btn-small" type="button" onClick={focusV2OpsBoard}>
+                لوحة الحركة الجديدة
+              </button>
               <button className="btn btn-small" type="button" onClick={() => setVersionTab("v1")}>
                 العودة إلى V1
               </button>
@@ -3003,36 +6168,333 @@ export default function App() {
 
           <section className="v2-grid">
             <article className="panel v2-narrative">
-              <h3>القصة الحية</h3>
-              <p>
-                <strong>ماذا حدث:</strong> {v2Narrative.happened}
-              </p>
-              <p>
-                <strong>لماذا مهم:</strong> {v2Narrative.why}
-              </p>
-              <p>
-                <strong>ماذا نراقب تالياً:</strong> {v2Narrative.next}
-              </p>
+              <div className="panel-head v2-section-head">
+                <h3>القصة الحية</h3>
+                <button className="btn btn-small btn-ghost section-collapse-btn" type="button" onClick={() => toggleV2Section("narrative")}>
+                  {sectionToggleLabel(v2SectionOpen.narrative)}
+                </button>
+              </div>
+              {v2SectionOpen.narrative ? (
+                <>
+                  <p>
+                    <strong>ماذا حدث:</strong> {v2Narrative.happened}
+                  </p>
+                  <p>
+                    <strong>لماذا مهم:</strong> {v2Narrative.why}
+                  </p>
+                  <p>
+                    <strong>ماذا نراقب تالياً:</strong> {v2Narrative.next}
+                  </p>
+                </>
+              ) : null}
             </article>
 
             <article className="panel v2-freshness">
-              <h3>رادار الحداثة</h3>
-              <div className="v2-freshness-chips">
-                <span className="fresh-chip live">Live {v2Freshness.live}</span>
-                <span className="fresh-chip ten">10m {v2Freshness.ten}</span>
-                <span className="fresh-chip hour">1h {v2Freshness.oneHour}</span>
-                <span className="fresh-chip three">3h {v2Freshness.threeHours}</span>
-                <span className="fresh-chip stale">3h+ {v2Freshness.stale}</span>
+              <div className="panel-head v2-section-head">
+                <h3>رادار الحداثة</h3>
+                <button className="btn btn-small btn-ghost section-collapse-btn" type="button" onClick={() => toggleV2Section("freshness")}>
+                  {sectionToggleLabel(v2SectionOpen.freshness)}
+                </button>
               </div>
-              <small>كل بطاقة تبيّن عمر الخبر الفعلي لحظة العرض.</small>
+              {v2SectionOpen.freshness ? (
+                <>
+                  <div className="v2-freshness-chips">
+                    <span className="fresh-chip live">Live {v2Freshness.live}</span>
+                    <span className="fresh-chip ten">10m {v2Freshness.ten}</span>
+                    <span className="fresh-chip hour">1h {v2Freshness.oneHour}</span>
+                    <span className="fresh-chip three">3h {v2Freshness.threeHours}</span>
+                    <span className="fresh-chip stale">3h+ {v2Freshness.stale}</span>
+                  </div>
+                  <small>كل بطاقة تبيّن عمر الخبر الفعلي لحظة العرض.</small>
+                </>
+              ) : null}
+            </article>
+
+            <article ref={v2OpsBoardRef} className="panel v2-ops-board">
+              <div className="panel-head v2-section-head">
+                <h3>لوحة الحركة والاعتراضات الإقليمية</h3>
+                <div className="v2-section-meta">
+                  <span>{v2OpsRegionalEvents.length} سجل خلال النافذة</span>
+                  <button className="btn btn-small btn-ghost section-collapse-btn" type="button" onClick={() => toggleV2Section("opsBoard")}>
+                    {sectionToggleLabel(v2SectionOpen.opsBoard)}
+                  </button>
+                </div>
+              </div>
+              {v2SectionOpen.opsBoard ? (
+                <>
+                  <div className="v2-ops-toolbar">
+                    <label className="v2-filter-label">
+                      نافذة التشغيل
+                      <select value={v2OpsWindowHours} onChange={(event) => setV2OpsWindowHours(Number(event.target.value || 6))}>
+                        <option value={1}>آخر ساعة</option>
+                        <option value={3}>آخر 3 ساعات</option>
+                        <option value={6}>آخر 6 ساعات</option>
+                        <option value={12}>آخر 12 ساعة</option>
+                        <option value={24}>آخر 24 ساعة</option>
+                        <option value={48}>آخر 48 ساعة</option>
+                      </select>
+                    </label>
+                    <span className="v2-ops-meta">أدلة موثقة (وكالات/حسابات رسمية): {v2OpsOfficialEvidenceCount}</span>
+                    <button className={`btn btn-small ${safeV2OpsLayers.air ? "active" : ""}`} type="button" onClick={() => toggleV2OpsLayer("air")}>
+                      طبقة الطيران
+                    </button>
+                    <button className={`btn btn-small ${safeV2OpsLayers.marine ? "active" : ""}`} type="button" onClick={() => toggleV2OpsLayer("marine")}>
+                      طبقة الملاحة
+                    </button>
+                    <button className={`btn btn-small ${safeV2OpsLayers.threats ? "active" : ""}`} type="button" onClick={() => toggleV2OpsLayer("threats")}>
+                      طبقة التهديدات
+                    </button>
+                  </div>
+
+                  <div className="v2-ops-kpis">
+                    <article className="v2-ops-kpi">
+                      <h4>إقلاع مرصود</h4>
+                      <p>{v2OpsStats.takeoffs}</p>
+                      <small className="details-meta">رحلات صُنّفت آليًا كإقلاع محتمل ضمن النافذة الزمنية الحالية.</small>
+                    </article>
+                    <article className="v2-ops-kpi">
+                      <h4>رحلات في الجو</h4>
+                      <p>{v2OpsStats.airborne}</p>
+                      <small className="details-meta">رحلات تُظهر مؤشرات طيران نشط (ارتفاع/سرعة/حالة) في نفس النافذة.</small>
+                    </article>
+                    <article className="v2-ops-kpi v2-uae-flow-kpi">
+                      <h4>UAE Flights (In / Out / Domestic)</h4>
+                      <div className="v2-uae-flow-rows">
+                        <div className="v2-uae-flow-row incoming">
+                          <span className="v2-uae-flow-arrow">↓</span>
+                          <span className="v2-uae-flow-label">Inbound to UAE</span>
+                          <strong>{v2OpsStats.uaeIncoming || 0}</strong>
+                        </div>
+                        <div className="v2-uae-flow-row outgoing">
+                          <span className="v2-uae-flow-arrow">↑</span>
+                          <span className="v2-uae-flow-label">Outbound from UAE</span>
+                          <strong>{v2OpsStats.uaeOutgoing || 0}</strong>
+                        </div>
+                        <div className="v2-uae-flow-row domestic">
+                          <span className="v2-uae-flow-arrow">↔</span>
+                          <span className="v2-uae-flow-label">Domestic UAE</span>
+                          <strong>{v2OpsStats.uaeDomestic || 0}</strong>
+                        </div>
+                      </div>
+                      <small className="details-meta">أحمر: قادم للإمارات | أخضر: مغادر من الإمارات | أزرق: رحلة داخلية بالإمارات.</small>
+                    </article>
+                    <article className="v2-ops-kpi">
+                      <h4>سفن متحركة</h4>
+                      <p>{v2OpsStats.shipsMoving}</p>
+                      <small className="details-meta">سفن مرصودة كـمتحركة فعليًا من السرعة أو حالة الملاحة.</small>
+                    </article>
+                    <article className="v2-ops-kpi">
+                      <h4>اعتراضات معروفة</h4>
+                      <p>{v2ThreatTotals.ballistic + v2ThreatTotals.cruise + v2ThreatTotals.drones}</p>
+                      <small className="details-meta">إجمالي إشارات (بالستي + كروز + مسيّرات) بعد إزالة التكرار والقيم غير المنطقية.</small>
+                    </article>
+                    <article className="v2-ops-kpi">
+                      <h4>إشارات بحرية محللة</h4>
+                      <p>{v2OpsStats.marineIntelSignals}</p>
+                      <small className="details-meta">أخبار بحرية حية تم تحويلها إلى نقاط تشغيلية على الخريطة.</small>
+                    </article>
+                  </div>
+
+                  <div className="v2-ops-layout">
+                    <section className="detail-block v2-ops-map-card">
+                      <h4>الخريطة التشغيلية التفاعلية</h4>
+                      {v2OpsMapPoints.length > 0 ? (
+                        <>
+                          <div className="v2-ops-map-shell" onMouseLeave={() => setV2OpsHoveredPointId(null)}>
+                            <div ref={v2OpsMapContainerRef} className="v2-ops-leaflet" />
+                          </div>
+                          {v2OpsHoverPoint ? (
+                            <article className="v2-ops-hover-card">
+                              <h5>
+                                <span className="v2-ops-item-icon">{v2OpsHoverPoint.icon || opsTypeIcon(v2OpsHoverPoint.type)}</span>
+                                {v2OpsHoverPoint.label}
+                              </h5>
+                              <p>{v2OpsHoverPoint.sub}</p>
+                              <small>{v2OpsHoverPoint.note || "لا يوجد تفسير إضافي."}</small>
+                              {v2OpsActiveEvent ? (
+                                <small className="details-meta">
+                                  {displayText(v2OpsActiveEvent.source_name)} | {formatTime(eventDisplayTime(v2OpsActiveEvent))}
+                                </small>
+                              ) : null}
+                              {v2OpsActiveMedia.videoUrl ? (
+                                <div className="v2-ops-media">
+                                  {isDirectVideoUrl(v2OpsActiveMedia.videoUrl) ? (
+                                    <video src={v2OpsActiveMedia.videoUrl} controls preload="metadata" />
+                                  ) : (
+                                    <iframe
+                                      title={`ops-media-video-${v2OpsHoverPoint.id}`}
+                                      src={v2OpsActiveMedia.videoUrl}
+                                      loading="lazy"
+                                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                      allowFullScreen
+                                    />
+                                  )}
+                                </div>
+                              ) : null}
+                              {!v2OpsActiveMedia.videoUrl && v2OpsActiveMedia.imageUrl ? (
+                                <div className="v2-ops-media">
+                                  <img src={v2OpsActiveMedia.imageUrl} alt={v2OpsHoverPoint.label} loading="lazy" />
+                                </div>
+                              ) : null}
+                              <div className="quick-topics">
+                                {v2OpsHoverPoint.rowId ? (
+                                  <button
+                                    className="btn btn-small btn-ghost"
+                                    type="button"
+                                    onClick={() => focusV2Story(v2OpsHoverPoint.rowId, { scroll: false, flash: false })}
+                                  >
+                                    ربط بالقصة
+                                  </button>
+                                ) : null}
+                                {v2OpsActiveEvent?.url ? (
+                                  <a className="btn btn-small btn-ghost source-link-btn" href={v2OpsActiveEvent.url} target="_blank" rel="noreferrer">
+                                    زيارة المصدر
+                                  </a>
+                                ) : null}
+                              </div>
+                            </article>
+                          ) : null}
+                        </>
+                      ) : (
+                        <p>لا توجد نقاط تشغيلية ضمن النافذة الحالية.</p>
+                      )}
+                    </section>
+
+                    <section className="detail-block v2-threat-card">
+                      <h4>مقارنة ديناميكية للدول (بالستي/كروز/مسيّرات)</h4>
+                      <div className="v2-threat-table-wrap">
+                        <table className="v2-threat-table">
+                          <thead>
+                            <tr>
+                              <th>الدولة</th>
+                              <th>بالستي</th>
+                              <th>كروز</th>
+                              <th>مسيّرات</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {v2ThreatRows.map((row) => (
+                              <tr
+                                key={row.country}
+                                className={row.selected ? "active" : ""}
+                                onClick={() => {
+                                  setV2ThreatCountry(row.country);
+                                  setV2OpsFocusPointId(`threat-${row.country}`);
+                                }}
+                              >
+                                <td>{row.country_ar}</td>
+                                <td>{normalizeThreatValue(row.ballistic)}</td>
+                                <td>{normalizeThreatValue(row.cruise)}</td>
+                                <td>{normalizeThreatValue(row.drones)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <small className="details-meta">
+                        القيم تراكمية منذ أول حدث تهديدي محمّل في النظام (لا تنخفض مع مرور الوقت). يتم حذف تكرار نفس القصة، واعتماد صيغة: أساس تراكمي رسمي + زيادات أحداث جديدة + مرصود بلا رقم. اختيار دولة من الجدول يرشّح نقاط الطيران والسفن والتهديدات على الخريطة والقوائم بالأسفل.
+                      </small>
+                    </section>
+                  </div>
+
+                  <div className="v2-ops-streams">
+                    <section className="detail-block v2-ops-stream">
+                      <h4>رحلات الطيران (على الخريطة + وسائط)</h4>
+                      <div className="v2-ops-chip-row">
+                        {Object.entries(v2OpsStats.flightTypeCounts).map(([label, count]) => (
+                          <span key={`flight-type-${label}`} className="fresh-chip ten">
+                            {label}: {count}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="v2-ops-chip-row">
+                        <span className="fresh-chip live">الإمارات قادمة: {v2OpsStats.uaeIncoming || 0}</span>
+                        <span className="fresh-chip ten">الإمارات مغادرة: {v2OpsStats.uaeOutgoing || 0}</span>
+                        <span className="fresh-chip hour">الإمارات داخلية: {v2OpsStats.uaeDomestic || 0}</span>
+                        <span className="fresh-chip live">إجمالي رحلات مرتبطة بالإمارات: {v2OpsStats.uaeTouchingCount || 0}</span>
+                      </div>
+                      <div className="v2-ops-chip-row">
+                        {Object.entries(v2OpsStats.uaeFlightTypeCounts || {}).map(([label, count]) => (
+                          <span key={`uae-flight-type-${label}`} className="fresh-chip hour">
+                            الإمارات | {label}: {count}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="v2-ops-items">
+                        {v2FlightDisplayItems.slice(0, 18).map((flight) => (
+                          <button key={`flight-snap-${flight.key}`} type="button" className="v2-ops-item-btn" onClick={() => focusV2OpsEvent(flight.row.id)}>
+                            <strong><span className="v2-ops-item-icon">{flight.point?.icon || opsTypeIcon(flight.point?.type)}</span>{flight.key}</strong>
+                            <small>
+                              {flight.flightType} | الدول: {routeArrowSummary(flight.fromCountry, flight.toCountry)} | المطارات:{" "}
+                              {routeArrowSummary(flight.fromPort, flight.toPort)}
+                            </small>
+                            <small>
+                              سرعة: {flight.speed != null ? Math.round(flight.speed) : "غير متاحة"} عقدة | ارتفاع:{" "}
+                              {flight.altitude != null ? Math.round(flight.altitude) : "غير متاح"} | التمركز: {flight.currentCountry || "غير محدد"} |{" "}
+                              {formatRelativeTime(eventDisplayTime(flight.row))}
+                            </small>
+                            <small>
+                              المصدر: {flight.sourceKind === "intel" ? "خبر جوي" : "تتبع FR24"} |{" "}
+                              {flight.media.videoUrl ? "وسائط: فيديو" : flight.media.imageUrl ? "وسائط: صورة" : "وسائط: غير متاحة"} | مرسوم على الخريطة
+                            </small>
+                          </button>
+                        ))}
+                        {v2FlightDisplayItems.length === 0 ? (
+                          <p>لا توجد رحلات مرتبطة بالدولة المختارة ({selectedOpsCountryDef?.country_ar || "غير محدد"}) ضمن النافذة الحالية.</p>
+                        ) : null}
+                      </div>
+                    </section>
+
+                    <section className="detail-block v2-ops-stream">
+                      <h4>حركة السفن (استشعار مباشر + تحليل الأخبار) على الخريطة + وسائط</h4>
+                      <div className="v2-ops-chip-row">
+                        {Object.entries(v2OpsStats.cargoTypeCounts).map(([label, count]) => (
+                          <span key={`cargo-type-${label}`} className="fresh-chip hour">
+                            {label}: {count}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="v2-ops-items">
+                        {v2ShipDisplayItems.slice(0, 22).map((ship) => (
+                          <button key={`ship-snap-${ship.key}`} type="button" className="v2-ops-item-btn" onClick={() => focusV2OpsEvent(ship.row.id)}>
+                            <strong><span className="v2-ops-item-icon">{ship.point?.icon || opsTypeIcon(ship.point?.type)}</span>{ship.key}</strong>
+                            <small>
+                              {ship.shipType} | الشحنة: {ship.cargoType} | الدول: {routeArrowSummary(ship.fromCountry, ship.toCountry)}
+                            </small>
+                            <small>
+                              الموانئ: {routeArrowSummary(ship.fromPort, ship.toPort)} | سرعة: {ship.speedKn != null ? ship.speedKn : "غير متاحة"} عقدة |{" "}
+                              {formatRelativeTime(eventDisplayTime(ship.row))}
+                            </small>
+                            <small>
+                              {ship.sourceKind === "intel" ? "مصدر: خبر محلل" : "مصدر: استشعار ملاحي مباشر"} | النوع التفصيلي:{" "}
+                              {ship.vesselTypeSpecific || "غير محدد"} | {ship.highLevel}
+                            </small>
+                            <small>
+                              {ship.media.videoUrl ? "وسائط: فيديو" : ship.media.imageUrl ? "وسائط: صورة" : "وسائط: غير متاحة"} | مرسوم على الخريطة
+                            </small>
+                          </button>
+                        ))}
+                        {v2ShipDisplayItems.length === 0 ? (
+                          <p>لا توجد سفن مرتبطة بالدولة المختارة ({selectedOpsCountryDef?.country_ar || "غير محدد"}) ضمن النافذة الحالية.</p>
+                        ) : null}
+                      </div>
+                    </section>
+                  </div>
+                </>
+              ) : null}
             </article>
 
             <article ref={v2FocusPanelRef} id="v2-focus-panel" className={`panel v2-focus-panel ${v2FocusFlash ? "focus-flash" : ""}`}>
-              <div className="panel-head">
+              <div className="panel-head v2-section-head">
                 <h3>تركيز القصة</h3>
-                <span>{v2FocusedEvent ? `S${v2FocusedEvent.severity} | ${formatRelativeTime(eventDisplayTime(v2FocusedEvent))}` : "لا يوجد"}</span>
+                <div className="v2-section-meta">
+                  <span>{v2FocusedEvent ? `S${v2FocusedEvent.severity} | ${formatRelativeTime(eventDisplayTime(v2FocusedEvent))}` : "لا يوجد"}</span>
+                  <button className="btn btn-small btn-ghost section-collapse-btn" type="button" onClick={() => toggleV2Section("focus")}>
+                    {sectionToggleLabel(v2SectionOpen.focus)}
+                  </button>
+                </div>
               </div>
-              {v2FocusedEvent ? (
+              {v2SectionOpen.focus ? v2FocusedEvent ? (
                 <>
                   <h4>{displayText(v2FocusedEvent.title)}</h4>
                   <p>{displayText(v2FocusedEvent.summary) || "لا يوجد ملخص."}</p>
@@ -3052,84 +6514,98 @@ export default function App() {
                 </>
               ) : (
                 <p>لا توجد قصة محددة حالياً.</p>
-              )}
+              ) : null}
             </article>
 
             <article className="panel v2-story-stream">
-              <div className="panel-head">
+              <div className="panel-head v2-section-head">
                 <h3>تدفق القصص المدمجة</h3>
-                <span>{v2StoryGroups.length} قصة</span>
+                <div className="v2-section-meta">
+                  <span>{v2StoryGroups.length} قصة</span>
+                  <button className="btn btn-small btn-ghost section-collapse-btn" type="button" onClick={() => toggleV2Section("storyStream")}>
+                    {sectionToggleLabel(v2SectionOpen.storyStream)}
+                  </button>
+                </div>
               </div>
-              <div className="v2-story-list">
-                {v2StoryGroups.length === 0 ? <p>لا توجد قصص ضمن الفلتر الحالي.</p> : null}
-                {v2StoryGroups.slice(0, 18).map((group) => (
-                  <article
-                    key={group.key}
-                    className={`v2-story-card severity-s${group.lead.severity} ${
-                      !seenEventIdSet.has(group.lead.id) && minutesSince(eventDisplayTime(group.lead)) <= 10 ? "new-pulse" : ""
-                    } ${v2FocusedEventId === group.lead.id ? "is-focused" : ""}`}
-                    onClick={(event) => {
-                      const target = event.target;
-                      if (target instanceof Element && target.closest("button, a")) return;
-                      focusV2Story(group.lead.id);
-                    }}
-                  >
-                    <div className="v2-story-meta">
-                      <span className="story-sev">S{group.lead.severity}</span>
-                      <span className="story-fresh">{freshnessLabel(eventDisplayTime(group.lead))}</span>
-                      <span className="story-time">{formatRelativeTime(eventDisplayTime(group.lead))}</span>
-                    </div>
-                    <h4>{displayText(group.lead.title)}</h4>
-                    <p>{displayText(group.lead.summary) || "لا يوجد ملخص."}</p>
-                    <div className="v2-story-footer">
-                      <span>تأكيد مصادر: {group.size}</span>
-                      <span>{group.sources.join(" | ")}</span>
-                    </div>
-                    <div className="quick-topics">
-                      <label className="select-line">
-                        <input
-                          type="checkbox"
-                          checked={v2SelectedEventIds.includes(group.lead.id)}
-                          onChange={(event) => {
+              {v2SectionOpen.storyStream ? (
+                <div className="v2-story-list">
+                  {v2StoryGroups.length === 0 ? <p>لا توجد قصص ضمن الفلتر الحالي.</p> : null}
+                  {v2StoryGroups.slice(0, 18).map((group) => (
+                    <article
+                      key={group.key}
+                      className={`v2-story-card severity-s${group.lead.severity} ${
+                        !seenEventIdSet.has(group.lead.id) && minutesSince(eventDisplayTime(group.lead)) <= 10 ? "new-pulse" : ""
+                      } ${v2FocusedEventId === group.lead.id ? "is-focused" : ""}`}
+                      onClick={(event) => {
+                        const target = event.target;
+                        if (target instanceof Element && target.closest("button, a")) return;
+                        focusV2Story(group.lead.id);
+                      }}
+                    >
+                      <div className="v2-story-meta">
+                        <span className="story-sev">S{group.lead.severity}</span>
+                        <span className="story-fresh">{freshnessLabel(eventDisplayTime(group.lead))}</span>
+                        <span className="story-time">{formatRelativeTime(eventDisplayTime(group.lead))}</span>
+                      </div>
+                      <h4>{displayText(group.lead.title)}</h4>
+                      <p>{displayText(group.lead.summary) || "لا يوجد ملخص."}</p>
+                      <div className="v2-story-footer">
+                        <span>تأكيد مصادر: {group.size}</span>
+                        <span>{group.sources.join(" | ")}</span>
+                      </div>
+                      <div className="quick-topics">
+                        <label className="select-line">
+                          <input
+                            type="checkbox"
+                            checked={v2SelectedEventIds.includes(group.lead.id)}
+                            onChange={(event) => {
+                              event.stopPropagation();
+                              toggleV2Selected(group.lead.id);
+                            }}
+                          />
+                          تحديد للتحليل
+                        </label>
+                        <button
+                          className="btn btn-small"
+                          type="button"
+                          onClick={(event) => {
                             event.stopPropagation();
-                            toggleV2Selected(group.lead.id);
+                            focusV2Story(group.lead.id);
                           }}
-                        />
-                        تحديد للتحليل
-                      </label>
-                      <button
-                        className="btn btn-small"
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          focusV2Story(group.lead.id);
-                        }}
-                      >
-                        تركيز
-                      </button>
-                      <button
-                        className="btn btn-small btn-ghost"
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openEventPopup(group.lead.id, { scope: "v2" });
-                        }}
-                      >
-                        فتح التفاصيل
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
+                        >
+                          تركيز
+                        </button>
+                        <button
+                          className="btn btn-small btn-ghost"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEventPopup(group.lead.id, { scope: "v2" });
+                          }}
+                        >
+                          فتح التفاصيل
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
             </article>
 
             <article className="panel v2-predictions-panel">
-              <div className="panel-head">
+              <div className="panel-head v2-section-head">
                 <h3>تذاكر التوقع الذكي</h3>
-                <span>
-                  {filteredPredictionTickets.length} / {scopedPredictionTickets.length} تذكرة | {activePredictionWorkspace?.label || "مساحة"}
-                </span>
+                <div className="v2-section-meta">
+                  <span>
+                    {filteredPredictionTickets.length} / {scopedPredictionTickets.length} تذكرة | {activePredictionWorkspace?.label || "مساحة"}
+                  </span>
+                  <button className="btn btn-small btn-ghost section-collapse-btn" type="button" onClick={() => toggleV2Section("predictions")}>
+                    {sectionToggleLabel(v2SectionOpen.predictions)}
+                  </button>
+                </div>
               </div>
+              {v2SectionOpen.predictions ? (
+                <>
               <div className="v2-workspace-tabs">
                 {predictionWorkspaces.map((workspace) => (
                   <button
@@ -3175,6 +6651,36 @@ export default function App() {
                     <option value={72}>72 ساعة</option>
                   </select>
                 </label>
+                <label className="v2-filter-label">
+                  المراجعة الآلية
+                  <select
+                    value={predictionReviewConfig.enabled ? "on" : "off"}
+                    onChange={(event) => {
+                      void updatePredictionReviewConfigPatch({ enabled: event.target.value === "on" });
+                    }}
+                    disabled={savingPredictionReviewConfig}
+                  >
+                    <option value="off">متوقفة</option>
+                    <option value="on">مفعلة</option>
+                  </select>
+                </label>
+                <label className="v2-filter-label">
+                  فاصل المراجعة الآلية
+                  <select
+                    value={Number(predictionReviewConfig.review_seconds || 600)}
+                    onChange={(event) => {
+                      void updatePredictionReviewInterval(Number(event.target.value || 600));
+                    }}
+                    disabled={savingPredictionReviewConfig}
+                  >
+                    {predictionReviewIntervalOptions.map((option) => (
+                      <option key={`review-interval-${option.value}`} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {savingPredictionReviewConfig ? <span className="muted">جارٍ تحديث إعدادات المراجعة...</span> : null}
                 <button className="btn btn-small btn-danger" type="button" onClick={clearActivePredictionWorkspace}>
                   مسح حقول النموذج
                 </button>
@@ -3188,6 +6694,14 @@ export default function App() {
                   <input
                     value={activePredictionWorkspace?.country || ""}
                     onChange={(event) => updateActivePredictionWorkspace({ country: event.target.value })}
+                  />
+                </label>
+                <label>
+                  تاريخ المعلومات من
+                  <input
+                    type="date"
+                    value={activePredictionWorkspace?.analysisDateFrom || ""}
+                    onChange={(event) => updateActivePredictionWorkspace({ analysisDateFrom: event.target.value })}
                   />
                 </label>
                 <label>
@@ -3233,6 +6747,11 @@ export default function App() {
                     }
                   />
                 </label>
+                <div className="details-meta">
+                  {buildFatalityAutoLine(activePredictionWorkspace, activeWorkspaceFatalityStats)}
+                  <br />
+                  {buildInjuryAutoLine(activePredictionWorkspace, activeWorkspaceFatalityStats)}
+                </div>
                 <button className="btn btn-accent" type="button" onClick={createPredictionTicket} disabled={creatingPrediction}>
                   {creatingPrediction ? "جارٍ الإنشاء..." : "إنشاء تذكرة توقع"}
                 </button>
@@ -3261,11 +6780,13 @@ export default function App() {
                         </button>
                       </div>
                       <small>
-                        {displayText(ticket.focus_query)} | {ticket.status} | {ticket.outcome}
+                        {displayText(ticket.focus_query)} | {predictionStatusLabel(ticket.status)} | {predictionOutcomeLabel(ticket.outcome)} |
+                        الدرجة: {predictionScorePercent(ticket.confidence)}%
                       </small>
                       <small>
                         الاستحقاق: {predictionDueAt(ticket) ? formatTime(predictionDueAt(ticket).toISOString()) : "غير متاح"}
                       </small>
+                      <small>آخر مراجعة: {formatTime(ticket.updated_at)}</small>
                     </article>
                   ))}
                   {filteredPredictionTickets.length === 0 ? <p>لا توجد تذاكر ضمن الفلاتر الحالية.</p> : null}
@@ -3276,17 +6797,39 @@ export default function App() {
                     <>
                       <h4>{displayText(selectedPredictionTicket.title)}</h4>
                       <p className="details-meta">
-                        الثقة: {Math.round((selectedPredictionTicket.confidence || 0) * 100)}% | الأفق: {selectedPredictionTicket.horizon_hours}h |
-                        النتيجة: {selectedPredictionTicket.outcome}
+                        الدرجة: {predictionScorePercent(selectedPredictionTicket.confidence)}% | الأفق: {selectedPredictionTicket.horizon_hours}h |
+                        الحالة: {predictionStatusLabel(selectedPredictionTicket.status)} | النتيجة: {predictionOutcomeLabel(selectedPredictionTicket.outcome)}
                       </p>
                       <p className="details-meta">
                         وقت الاستحقاق:{" "}
                         {predictionDueAt(selectedPredictionTicket) ? formatTime(predictionDueAt(selectedPredictionTicket).toISOString()) : "غير متاح"}
                       </p>
+                      <p className="details-meta">آخر تحديث آلي/يدوي: {formatTime(selectedPredictionTicket.updated_at)}</p>
+                      <button
+                        type="button"
+                        className="detail-block v2-operational-card"
+                        onClick={() =>
+                          setContentModal({
+                            title: "التحليل التخصصي (حالي + تنبئي)",
+                            content: displayText(sanitizePredictionBoxContent(selectedSpecialistAnalysisContent)),
+                            createdAt: selectedPredictionTicket?.updated_at || selectedPredictionTicket?.created_at || null,
+                          })
+                        }
+                      >
+                        <h4>التحليل التخصصي (حالي + تنبئي)</h4>
+                        <p>{toBulletLines(displayText(sanitizePredictionBoxContent(selectedSpecialistAnalysisContent))).slice(0, 2).join(" - ") || "غير متوفر."}</p>
+                      </button>
                       <div className="v2-operational-grid">
                         {operationalSectionDefs.map((section) => {
-                          const raw = selectedPredictionSections[section.key];
-                          const bullets = toBulletLines(displayText(raw));
+                          const baseRaw = selectedPredictionSections[section.key];
+                          const raw =
+                            section.key === "DAMAGES_LOSSES"
+                              ? enrichDamagesLossesSection(baseRaw, activePredictionWorkspace, activeWorkspaceFatalityStats)
+                              : section.key === "MITIGATION"
+                              ? selectedMitigationContent
+                              : baseRaw;
+                          const safeRaw = sanitizePredictionBoxContent(raw);
+                          const bullets = toBulletLines(displayText(safeRaw));
                           const preview = bullets.slice(0, 2).join(" - ");
                           const content = bullets.length > 0 ? bullets.map((line) => `• ${line}`).join("\n") : "غير متوفر بعد في هذه التذكرة.";
                           return (
@@ -3314,13 +6857,13 @@ export default function App() {
                         onClick={() =>
                           setContentModal({
                             title: "النص الكامل (منسق بالعربية)",
-                            content: displayText(cleanOperationalTaggedText(selectedPredictionTicket.prediction_text)),
+                            content: displayText(sanitizePredictionBoxContent(cleanOperationalTaggedText(selectedPredictionTicket.prediction_text))),
                             createdAt: selectedPredictionTicket?.updated_at || selectedPredictionTicket?.created_at || null,
                           })
                         }
                       >
                         <h4>النص الكامل (منسق بالعربية)</h4>
-                        <p>{displayText(cleanOperationalTaggedText(selectedPredictionTicket.prediction_text))}</p>
+                        <p>{displayText(sanitizePredictionBoxContent(cleanOperationalTaggedText(selectedPredictionTicket.prediction_text)))}</p>
                       </button>
                       <label>
                         تحديث/ملاحظة
@@ -3341,26 +6884,40 @@ export default function App() {
                         </button>
                       </div>
                       <div className="v2-prediction-history">
-                        {predictionUpdates.map((update) => (
-                          <button
-                            key={update.id}
-                            type="button"
-                            className="detail-block v2-click-block"
-                            onClick={() =>
-                              setContentModal({
-                                title: `تحديث التوقع: ${update.kind}${update.outcome ? ` | ${update.outcome}` : ""}`,
-                                content: displayText(update.content),
-                                createdAt: update.created_at,
-                              })
-                            }
-                          >
-                            <h4>
-                              {update.kind} {update.outcome ? `| ${update.outcome}` : ""}
-                            </h4>
-                            <p>{displayText(update.content)}</p>
-                            <small>{formatTime(update.created_at)}</small>
-                          </button>
-                        ))}
+                        {predictionUpdates.map((update) => {
+                          const isNewAutoReview = isUnseenPredictionUpdate(update);
+                          const safeContent = sanitizePredictionUpdateContent(update.content, update.kind);
+                          const structuredPreview = toStructuredReadableBullets(displayText(safeContent));
+                          const previewText =
+                            structuredPreview
+                              .slice(0, 2)
+                              .map((item) => item.text)
+                              .join(" • ") || displayText(safeContent);
+                          return (
+                            <button
+                              key={update.id}
+                              type="button"
+                              className={`detail-block v2-click-block ${isNewAutoReview ? "prediction-update-new" : ""}`}
+                              onClick={() => {
+                                markPredictionUpdateSeen(update.id);
+                                setContentModal({
+                                  title: `تحديث التوقع: ${predictionUpdateKindLabel(update.kind)}${update.outcome ? ` | ${predictionOutcomeLabel(update.outcome)}` : ""}`,
+                                  content: displayText(safeContent),
+                                  createdAt: update.created_at,
+                                });
+                              }}
+                            >
+                              <div className="prediction-update-head">
+                                <h4>
+                                  {predictionUpdateKindLabel(update.kind)} {update.outcome ? `| ${predictionOutcomeLabel(update.outcome)}` : ""}
+                                </h4>
+                                {isNewAutoReview ? <span className="new-flag prediction-update-new-flag">جديد</span> : null}
+                              </div>
+                              <p>{previewText}</p>
+                              <small>{formatTime(update.created_at)}</small>
+                            </button>
+                          );
+                        })}
                         {predictionUpdates.length === 0 ? <p>لا يوجد سجل تحديثات بعد.</p> : null}
                       </div>
                     </>
@@ -3370,20 +6927,24 @@ export default function App() {
                 </div>
               </div>
 
-              <section className="v2-leaderboard">
+              <section className="v2-leaderboard v2-leaderboard-compact">
                 <div className="panel-head">
-                  <h4>لوحة دقة النموذج عبر الزمن</h4>
+                  <h4>مؤشر دقة النموذج (مختصر)</h4>
                   <span>{aiStatus.model || "Model"}</span>
                 </div>
                 <div className="v2-leaderboard-list">
                   {predictionLeaderboard.map((row) => (
-                    <article key={`${row.model}-${row.window_hours}`} className="detail-block">
-                      <h4>{row.window_label}</h4>
+                    <article key={`${row.model}-${row.window_hours}`} className="detail-block v2-leaderboard-item">
+                      <h5>{predictionWindowLabel(row)}</h5>
                       <p>
-                        الدقة: {Math.round((Number(row.accuracy || 0) * 10000) / 100)}% | التذاكر المقيمة: {row.evaluated_tickets}
+                        الدقة: {Math.round((Number(row.accuracy || 0) * 10000) / 100)}%
                       </p>
+                      <small>التذاكر المقيمة: {row.evaluated_tickets}</small>
                       <small>
-                        صحيح: {row.correct_count} | جزئي: {row.partial_count} | خاطئ: {row.wrong_count} | التغير:{" "}
+                        صحيح: {row.correct_count} | جزئي: {row.partial_count} | خاطئ: {row.wrong_count}
+                      </small>
+                      <small>
+                        التغير:{" "}
                         {Math.round((Number(row.trend_delta || 0) * 10000) / 100)}%
                       </small>
                     </article>
@@ -3391,6 +6952,8 @@ export default function App() {
                   {predictionLeaderboard.length === 0 ? <p>لا توجد بيانات تقييم كافية بعد.</p> : null}
                 </div>
               </section>
+                </>
+              ) : null}
             </article>
           </section>
         </section>
@@ -3408,12 +6971,15 @@ export default function App() {
             {contentModal.createdAt ? <p className="details-meta">{formatTime(contentModal.createdAt)}</p> : null}
             <article className="detail-block content-modal-body">
               {(() => {
-                const items = toReadableBullets(contentModal.content);
+                const items = toStructuredReadableBullets(contentModal.content);
                 if (items.length > 1) {
                   return (
                     <ul className="content-modal-list">
                       {items.map((item, index) => (
-                        <li key={`modal-item-${index}`}>{item}</li>
+                        <li key={`modal-item-${index}`}>
+                          <div className="content-modal-point-text">{item.text}</div>
+                          {item.source ? <small className="content-modal-point-source">المصدر: {item.source}</small> : null}
+                        </li>
                       ))}
                     </ul>
                   );
@@ -3429,7 +6995,7 @@ export default function App() {
         <div className="event-modal-overlay" onClick={() => setPopupEventId(null)}>
           <article className="event-modal panel" onClick={(event) => event.stopPropagation()}>
             <div className="panel-head event-modal-head">
-              <h2>{displayText(popupEvent.title)}</h2>
+              <h2>{displayText(sanitizeEventDetailText(popupEvent.title)) || displayText(popupEvent.title)}</h2>
               <button className="btn btn-small" type="button" onClick={() => setPopupEventId(null)}>
                 إغلاق
               </button>
@@ -3441,15 +7007,76 @@ export default function App() {
             <div className="detail-sections">
               <article className="detail-block">
                 <h4>الملخص</h4>
-                <p>{displayText(popupEvent.summary) || "لا يوجد ملخص."}</p>
+                <p>{displayText(sanitizeEventDetailText(popupEvent.summary || popupEvent.details)) || "لا يوجد ملخص."}</p>
               </article>
               <article className="detail-block">
                 <h4>تقييم الذكاء</h4>
-                <p>{displayText(popupEvent.ai_assessment) || "لا يوجد تقييم إضافي."}</p>
+                <div className="ai-assessment-view">
+                  <div className="ai-assessment-kpis">
+                    <span className="fact-pill">
+                      <strong>الحكم:</strong> {popupAiAssessment.verdict}
+                    </span>
+                    <span className="fact-pill">
+                      <strong>الثقة:</strong> {popupAiAssessment.confidence}% ({popupAiAssessment.confidenceLabel})
+                    </span>
+                  </div>
+                  <p>{displayText(popupAiAssessment.operationalSummary) || "لا يوجد تقييم إضافي."}</p>
+                  {popupAiAssessment.actions.length > 0 ? (
+                    <div className="ai-assessment-group">
+                      <h5>اقتراحات الذكاء</h5>
+                      <ul>
+                        {popupAiAssessment.actions.map((item, index) => (
+                          <li key={`popup-ai-action-${index}`}>{displayText(item)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {popupAiAssessment.impact ? (
+                    <div className="ai-assessment-group">
+                      <h5>أثر الخبر على الوضع (إيجابي/سلبي)</h5>
+                      <ul>
+                        <li><strong>قراءة مختصرة:</strong> {displayText(popupAiAssessment.impact.brief)}</li>
+                        <li><strong>الفائدة المحتملة:</strong> {displayText(popupAiAssessment.impact.potentialBenefit)}</li>
+                        <li><strong>الأثر السلبي المحتمل:</strong> {displayText(popupAiAssessment.impact.potentialRisk)}</li>
+                        <li><strong>المحصلة:</strong> {displayText(popupAiAssessment.impact.netImpact)}</li>
+                      </ul>
+                    </div>
+                  ) : null}
+                  {popupAiAssessment.evidence.length > 0 ? (
+                    <div className="ai-assessment-group">
+                      <h5>أهم الأدلة المختصرة</h5>
+                      <ul>
+                        {popupAiAssessment.evidence.map((item, index) => (
+                          <li key={`popup-ai-evidence-${index}`}>{displayText(item)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {popupAiAssessment.triggers.length > 0 ? (
+                    <div className="ai-assessment-group">
+                      <h5>مؤشرات رفع المستوى</h5>
+                      <ul>
+                        {popupAiAssessment.triggers.map((item, index) => (
+                          <li key={`popup-ai-trigger-${index}`}>{displayText(item)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {popupAiAssessment.missingInfo.length > 0 ? (
+                    <div className="ai-assessment-group">
+                      <h5>بيانات ناقصة لتحسين الدقة</h5>
+                      <ul>
+                        {popupAiAssessment.missingInfo.map((item, index) => (
+                          <li key={`popup-ai-missing-${index}`}>{displayText(item)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
               </article>
               <article className="detail-block">
-                <h4>تفاصيل المصدر</h4>
-                <p>{displayText(summarizeSourceDetails(popupEvent)) || "لا توجد تفاصيل إضافية."}</p>
+                <h4>تفاصيل إضافية</h4>
+                <p>{displayText(sanitizeEventDetailText(summarizeSourceDetails(popupEvent))) || "لا توجد تفاصيل إضافية."}</p>
               </article>
             </div>
             <div className="facts-grid">
@@ -3458,18 +7085,6 @@ export default function App() {
                   <strong>{key}:</strong> {value}
                 </span>
               ))}
-            </div>
-            <div className="quick-topics modal-links">
-              {popupEvent.url ? (
-                <a className="btn btn-ghost source-link-btn" href={popupEvent.url} target="_blank" rel="noreferrer">
-                  زيارة الموقع الأصلي
-                </a>
-              ) : null}
-              {popupSourceEndpoint ? (
-                <a className="btn btn-ghost source-link-btn" href={popupSourceEndpoint} target="_blank" rel="noreferrer">
-                  زيارة مصدر السحب
-                </a>
-              ) : null}
             </div>
           </article>
         </div>

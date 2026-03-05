@@ -213,3 +213,15 @@ class AIPredictionLeaderboardRow(BaseModel):
 
 class AIPredictionDeleteResponse(BaseModel):
     deleted_count: int = 0
+
+
+class AIPredictionReviewConfigRead(BaseModel):
+    enabled: bool
+    review_seconds: int = Field(ge=60, le=86400)
+    min_interval_minutes: int = Field(ge=1, le=1440)
+
+
+class AIPredictionReviewConfigUpdate(BaseModel):
+    enabled: bool | None = None
+    review_seconds: int | None = Field(default=None, ge=60, le=86400)
+    min_interval_minutes: int | None = Field(default=None, ge=1, le=1440)

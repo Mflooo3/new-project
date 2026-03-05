@@ -97,6 +97,24 @@ SPORTS_KEYWORDS = {
     "ريال مدريد",
 }
 
+ARABIC_ONLY_UAE_FEED_MARKERS = (
+    "wam uae feed",
+    "24.ae uae feed",
+    "sharjah24 uae feed",
+    "emarat al youm uae feed",
+    "al bayan uae feed",
+    "al khaleej uae feed",
+    "al ittihad uae feed",
+    "al roeya uae feed",
+)
+
+LONG_LOOKBACK_NEWS_FEED_MARKERS = (
+    "wam uae feed",
+    "khaleej times uae feed",
+    "emirates 24/7 uae feed",
+    "the national uae feed",
+)
+
 
 def _in_gulf(lat: float | None, lon: float | None) -> bool:
     if lat is None or lon is None:
@@ -126,6 +144,20 @@ def _topic_hits(*values: str | None) -> int:
 def _contains_arabic(*values: str | None) -> bool:
     text = " ".join(filter(None, values))
     return bool(re.search(r"[\u0600-\u06FF]", text))
+
+
+def _details_quality(value: str | None) -> int:
+    parts = [part.strip().lower() for part in str(value or "").split("|") if part.strip()]
+    if not parts:
+        return 0
+    score = 0
+    for part in parts:
+        if part.endswith("=n/a") or part.endswith("=?"):
+            continue
+        if "unknown" in part:
+            continue
+        score += 1
+    return score
 
 
 def _is_sports_content(*values: str | None) -> bool:
@@ -186,6 +218,8 @@ def _fetchers_by_hint() -> dict[str, Fetcher]:
         "generic_json_list": fetch_custom_json,
         "flightradar24": fetch_flightradar24_feed,
         "fr24": fetch_flightradar24_feed,
+        "jsoncargo": fetch_marinetraffic_official_feed,
+        "jsoncargo_official": fetch_marinetraffic_official_feed,
         "marinetraffic": fetch_marinetraffic_official_feed,
         "marinetraffic_official": fetch_marinetraffic_official_feed,
         "cyber_rss": fetch_cyber_feed,
@@ -250,12 +284,21 @@ class IngestionService:
                 if source.source_type == "news" and raw.event_time is not None:
                     raw_event_time = _as_utc(raw.event_time)
                     max_age_hours = max(1, int(settings.news_max_age_hours))
+                    source_name_lower = (source.name or "").lower()
+                    if any(marker in source_name_lower for marker in LONG_LOOKBACK_NEWS_FEED_MARKERS):
+                        max_age_hours = max(max_age_hours, 168)
                     if raw_event_time < now - timedelta(hours=max_age_hours):
                         continue
-                if source.source_type == "news" and "uae feed" in (source.name or "").lower():
-                    if not _contains_arabic(raw.title, raw.summary):
-                        continue
+                if source.source_type == "news":
+                    source_name_lower = (source.name or "").lower()
+                    if any(marker in source_name_lower for marker in ARABIC_ONLY_UAE_FEED_MARKERS):
+                        if not _contains_arabic(raw.title, raw.summary):
+                            continue
                 if not is_x_recent_source and not _is_relevant(raw, source.source_type):
+                    continue
+                existing_event = self._find_existing_by_external_id(source, raw)
+                if existing_event is not None:
+                    self._refresh_existing_event(source=source, raw=raw, event=existing_event)
                     continue
                 if self._exists(source, raw):
                     continue
@@ -327,6 +370,73 @@ class IngestionService:
             "events_stored": events_stored,
             "alerts_created": alerts_created,
         }
+
+    def _find_existing_by_external_id(self, source: Source, raw: RawEvent) -> Event | None:
+        if not raw.external_id:
+            return None
+        return self.session.exec(
+            select(Event)
+            .where(
+                Event.source_id == source.id,
+                Event.external_id == raw.external_id,
+            )
+            .order_by(desc(Event.created_at))
+            .limit(1)
+        ).first()
+
+    def _refresh_existing_event(self, *, source: Source, raw: RawEvent, event: Event) -> None:
+        changed = False
+        new_title = raw.title[:300]
+        new_summary = (raw.summary or "")[:1500] or None
+        new_details = (raw.details or "")[:3000] or None
+
+        if new_title and new_title != event.title:
+            event.title = new_title
+            changed = True
+
+        if new_summary and (not event.summary or len(new_summary) > len(event.summary or "")):
+            event.summary = new_summary
+            changed = True
+
+        if new_details and _details_quality(new_details) > _details_quality(event.details):
+            event.details = new_details
+            changed = True
+
+        if raw.url and not event.url:
+            event.url = raw.url
+            changed = True
+
+        if raw.location and not event.location:
+            event.location = raw.location
+            changed = True
+
+        if raw.latitude is not None and event.latitude is None:
+            event.latitude = raw.latitude
+            changed = True
+        if raw.longitude is not None and event.longitude is None:
+            event.longitude = raw.longitude
+            changed = True
+
+        normalized_time = raw.normalized_time()
+        if normalized_time and normalized_time != event.event_time:
+            event.event_time = normalized_time
+            changed = True
+
+        if not changed:
+            return
+
+        relevance_score = _relevance_score(raw)
+        analysis = self.analyzer.analyze(
+            raw=raw,
+            source_type=source.source_type,
+            relevance_score=relevance_score,
+        )
+        event.relevance_score = relevance_score
+        event.severity = analysis.severity
+        event.tags = ",".join(analysis.tags)
+        event.ai_assessment = analysis.assessment
+        self.session.add(event)
+        self.session.commit()
 
     def _exists(self, source: Source, raw: RawEvent) -> bool:
         normalized_time = raw.normalized_time()

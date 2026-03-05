@@ -1,5 +1,8 @@
 import json
 from collections.abc import AsyncGenerator
+from datetime import datetime
+from typing import Any
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
@@ -22,6 +25,8 @@ from app.schemas import (
     AIPredictionDeleteResponse,
     AIPredictionLeaderboardRow,
     AIPredictionOutcomeSet,
+    AIPredictionReviewConfigRead,
+    AIPredictionReviewConfigUpdate,
     AIPredictionTicketRead,
     AIPredictionUpdateCreate,
     AIPredictionUpdateRead,
@@ -42,10 +47,13 @@ from app.services.ingestion import IngestionService
 from app.services.ai_workspace import AIWorkspaceService
 from app.services.queue import enqueue_ingestion_job, fetch_job, job_payload
 from app.services.realtime import event_bus
+from app.services.scheduler import get_prediction_review_config, update_prediction_review_config
 from app.services.trust import is_trusted_event
+from app.services.fetchers.marinetraffic_official import probe_jsoncargo_status
 
 public_router = APIRouter()
 router = APIRouter(dependencies=[Depends(require_api_key)])
+_jsoncargo_status_cache: dict[str, Any] = {"checked_monotonic": 0.0, "payload": None}
 
 
 def _as_source_read(source: Source) -> SourceRead:
@@ -115,17 +123,23 @@ def health() -> dict[str, str]:
 
 @router.get("/events", response_model=list[EventRead])
 def get_events(
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(default=100, ge=1, le=4000),
     source_type: str | None = None,
     min_severity: int = Query(default=1, ge=1, le=5),
     query_text: str | None = Query(default=None),
     trusted_only: bool = Query(default=False),
+    event_time_from: datetime | None = Query(default=None),
+    event_time_to: datetime | None = Query(default=None),
     session: Session = Depends(get_session),
 ) -> list[EventRead]:
     query = select(Event).where(Event.severity >= min_severity)
     if source_type:
         query = query.where(Event.source_type == source_type)
-    query = query.order_by(desc(Event.created_at)).limit(min(1000, limit * 8))
+    if event_time_from is not None:
+        query = query.where(Event.event_time >= event_time_from)
+    if event_time_to is not None:
+        query = query.where(Event.event_time <= event_time_to)
+    query = query.order_by(desc(Event.created_at)).limit(min(4000, limit * 8))
     rows = session.exec(query).all()
     if query_text:
         needle = query_text.strip().lower()
@@ -183,6 +197,56 @@ def get_sources(session: Session = Depends(get_session)) -> list[SourceRead]:
     _deduplicate_sources(session)
     rows = session.exec(select(Source).order_by(desc(Source.created_at))).all()
     return [_as_source_read(row) for row in rows]
+
+
+@router.get("/sources/jsoncargo/status")
+def get_jsoncargo_status(session: Session = Depends(get_session)) -> dict[str, Any]:
+    rows = session.exec(select(Source).where(Source.source_type == "marine").order_by(desc(Source.created_at))).all()
+    jsoncargo_source = next(
+        (
+            row
+            for row in rows
+            if row.enabled
+            and (
+                "jsoncargo" in (row.parser_hint or "").strip().lower()
+                or "jsoncargo.com" in (row.endpoint or "").strip().lower()
+            )
+        ),
+        None,
+    )
+    if not jsoncargo_source:
+        return {
+            "configured": bool(settings.jsoncargo_api_key or settings.marinetraffic_api_key),
+            "state": "not_configured",
+            "status_code": None,
+            "message": "No enabled JSONCargo marine source.",
+            "detail": None,
+            "checked_at": datetime.utcnow().isoformat(),
+            "endpoint": None,
+        }
+
+    now_monotonic = time.monotonic()
+    cache_ttl_seconds = 180.0
+    cached_payload = _jsoncargo_status_cache.get("payload")
+    checked_monotonic = float(_jsoncargo_status_cache.get("checked_monotonic") or 0.0)
+    if (
+        isinstance(cached_payload, dict)
+        and now_monotonic - checked_monotonic < cache_ttl_seconds
+        and cached_payload.get("source_id") == jsoncargo_source.id
+        and cached_payload.get("endpoint") == jsoncargo_source.endpoint
+    ):
+        cached = dict(cached_payload)
+        cached["cached"] = True
+        return cached
+
+    status = probe_jsoncargo_status(jsoncargo_source.endpoint)
+    status["source_id"] = jsoncargo_source.id
+    status["source_name"] = jsoncargo_source.name
+    status["enabled"] = bool(jsoncargo_source.enabled)
+    status["cached"] = False
+    _jsoncargo_status_cache["checked_monotonic"] = now_monotonic
+    _jsoncargo_status_cache["payload"] = dict(status)
+    return status
 
 
 @router.post("/sources", response_model=SourceRead, status_code=201)
@@ -366,6 +430,21 @@ def ai_prediction_leaderboard(session: Session = Depends(get_session)) -> list[A
     service = AIWorkspaceService(session=session)
     rows = service.get_prediction_leaderboard()
     return [AIPredictionLeaderboardRow(**row) for row in rows]
+
+
+@router.get("/ai/predictions/review-config", response_model=AIPredictionReviewConfigRead)
+def ai_prediction_review_config() -> AIPredictionReviewConfigRead:
+    return AIPredictionReviewConfigRead(**get_prediction_review_config())
+
+
+@router.patch("/ai/predictions/review-config", response_model=AIPredictionReviewConfigRead)
+def ai_prediction_review_config_update(payload: AIPredictionReviewConfigUpdate) -> AIPredictionReviewConfigRead:
+    row = update_prediction_review_config(
+        enabled=payload.enabled,
+        review_seconds=payload.review_seconds,
+        min_interval_minutes=payload.min_interval_minutes,
+    )
+    return AIPredictionReviewConfigRead(**row)
 
 
 @router.get("/ai/predictions/{ticket_id}", response_model=AIPredictionTicketRead)

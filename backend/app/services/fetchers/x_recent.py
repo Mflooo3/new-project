@@ -47,6 +47,37 @@ def _author_map(includes: dict[str, Any] | None) -> dict[str, str]:
     return out
 
 
+def _media_map(includes: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    media_rows = (includes or {}).get("media") if isinstance(includes, dict) else []
+    out: dict[str, dict[str, Any]] = {}
+    if not isinstance(media_rows, list):
+        return out
+    for row in media_rows:
+        if not isinstance(row, dict):
+            continue
+        media_key = str(row.get("media_key") or "").strip()
+        if not media_key:
+            continue
+        out[media_key] = row
+    return out
+
+
+def _entity_urls(row: dict[str, Any]) -> list[str]:
+    entities = row.get("entities") if isinstance(row.get("entities"), dict) else {}
+    urls = entities.get("urls") if isinstance(entities, dict) else []
+    out: list[str] = []
+    if not isinstance(urls, list):
+        return out
+    for item in urls:
+        if not isinstance(item, dict):
+            continue
+        for key in ("expanded_url", "unwound_url", "url"):
+            value = str(item.get(key) or "").strip()
+            if value and value not in out:
+                out.append(value)
+    return out
+
+
 def fetch_x_recent(endpoint: str, limit: int = 80) -> list[RawEvent]:
     token = (settings.x_api_bearer_token or settings.x_api_key or "").strip()
     if not token:
@@ -56,8 +87,9 @@ def fetch_x_recent(endpoint: str, limit: int = 80) -> list[RawEvent]:
         endpoint,
         {
             "max_results": str(min(100, max(10, limit))),
-            "tweet.fields": "created_at,lang,public_metrics,author_id",
-            "expansions": "author_id",
+            "tweet.fields": "created_at,lang,public_metrics,author_id,entities,attachments",
+            "expansions": "author_id,attachments.media_keys",
+            "media.fields": "media_key,type,url,preview_image_url",
             "sort_order": "recency",
         },
     )
@@ -75,6 +107,7 @@ def fetch_x_recent(endpoint: str, limit: int = 80) -> list[RawEvent]:
     if not isinstance(rows, list):
         return []
     authors = _author_map(payload.get("includes") if isinstance(payload, dict) else None)
+    media_by_key = _media_map(payload.get("includes") if isinstance(payload, dict) else None)
 
     items: list[RawEvent] = []
     for row in rows[:limit]:
@@ -101,6 +134,37 @@ def fetch_x_recent(endpoint: str, limit: int = 80) -> list[RawEvent]:
         ]
         if handle:
             details_parts.append(f"author=@{handle}")
+        media_keys = []
+        attachments = row.get("attachments") if isinstance(row.get("attachments"), dict) else {}
+        if isinstance(attachments, dict):
+            raw_keys = attachments.get("media_keys")
+            if isinstance(raw_keys, list):
+                media_keys = [str(value).strip() for value in raw_keys if str(value or "").strip()]
+        media_types: list[str] = []
+        image_urls: list[str] = []
+        video_urls: list[str] = []
+        for media_key in media_keys:
+            media_row = media_by_key.get(media_key) or {}
+            media_type = str(media_row.get("type") or "").strip().lower()
+            media_url = str(media_row.get("url") or "").strip()
+            preview_url = str(media_row.get("preview_image_url") or "").strip()
+            if media_type:
+                media_types.append(media_type)
+            if media_type == "photo" and media_url:
+                image_urls.append(media_url)
+            elif preview_url:
+                image_urls.append(preview_url)
+                if media_type in {"video", "animated_gif"}:
+                    video_urls.append(preview_url)
+        entity_urls = _entity_urls(row)
+        if media_types:
+            details_parts.append(f"media_type={','.join(dict.fromkeys(media_types))}")
+        if image_urls:
+            details_parts.append(f"image_url={image_urls[0]}")
+        if video_urls:
+            details_parts.append(f"video_url={video_urls[0]}")
+        if entity_urls:
+            details_parts.append(f"expanded_url={entity_urls[0]}")
         items.append(
             RawEvent(
                 external_id=tweet_id,

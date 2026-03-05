@@ -11,7 +11,7 @@ from reportlab.lib.utils import simpleSplit
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
-from sqlmodel import Session, delete, desc, select
+from sqlmodel import Session, asc, delete, desc, select
 
 from app.config import settings
 from app.models import AIPredictionTicket, AIPredictionUpdate, AIChatMessage, AIInsight, Event
@@ -29,19 +29,31 @@ except Exception:  # pragma: no cover - fallback when dependency missing
 
 
 STATUS_CACHE_TTL_SECONDS = 120
+DEFAULT_PREDICTION_REVIEW_INTERVAL_MINUTES = 10
 
 
 def _events_context(events: list[Event], limit: int = 30) -> str:
+    def _source_bucket(event: Event) -> str:
+        if event.source_type in {"incident", "flight", "marine", "cyber"}:
+            return "sensor_or_structured"
+        if event.source_type == "social":
+            return "social"
+        return "media_or_feed"
+
     rows: list[dict[str, Any]] = []
     for event in events[:limit]:
         rows.append(
             {
                 "id": event.id,
                 "source_type": event.source_type,
+                "source_bucket": _source_bucket(event),
+                "source_name": event.source_name,
                 "severity": event.severity,
                 "title": event.title,
                 "summary": event.summary,
                 "details": event.details,
+                "tags": event.tags,
+                "location": event.location,
                 "event_time": event.event_time.isoformat(),
                 "ai_assessment": event.ai_assessment,
                 "url": event.url,
@@ -256,11 +268,11 @@ class AIWorkspaceService:
 
     def get_prediction_leaderboard(self) -> list[dict[str, Any]]:
         windows: list[tuple[int, str]] = [
-            (24, "آخر 24 ساعة"),
-            (72, "آخر 72 ساعة"),
-            (168, "آخر 7 أيام"),
-            (720, "آخر 30 يوم"),
-            (0, "كل الوقت"),
+            (24, "Ø¢Ø®Ø± 24 Ø³Ø§Ø¹Ø©"),
+            (72, "Ø¢Ø®Ø± 72 Ø³Ø§Ø¹Ø©"),
+            (168, "Ø¢Ø®Ø± 7 Ø£ÙŠØ§Ù…"),
+            (720, "Ø¢Ø®Ø± 30 ÙŠÙˆÙ…"),
+            (0, "ÙƒÙ„ Ø§Ù„ÙˆÙ‚Øª"),
         ]
         now = datetime.now(timezone.utc)
         model_name = (settings.openai_model or "").strip() or "gpt-4.1-mini"
@@ -320,12 +332,14 @@ class AIWorkspaceService:
     ) -> tuple[AIPredictionTicket, AIPredictionUpdate]:
         events = self._load_context_events(event_ids=event_ids or [], question=focus_query, limit=80)
         prompt = (
-            f"أنشئ توقعاً تشغيلياً واضحاً مع سيناريو رئيسي خلال {horizon_hours} ساعة. "
-            f"التركيز: {focus_query}. الطلب: {request_text}."
+            f"Ø£Ù†Ø´Ø¦ ØªÙˆÙ‚Ø¹Ø§Ù‹ ØªØ´ØºÙŠÙ„ÙŠØ§Ù‹ ÙˆØ§Ø¶Ø­Ø§Ù‹ Ù…Ø¹ Ø³ÙŠÙ†Ø§Ø±ÙŠÙˆ Ø±Ø¦ÙŠØ³ÙŠ Ø®Ù„Ø§Ù„ {horizon_hours} Ø³Ø§Ø¹Ø©. "
+            f"Ø§Ù„ØªØ±ÙƒÙŠØ²: {focus_query}. Ø§Ù„Ø·Ù„Ø¨: {request_text}."
         )
         prediction_text = self._generate_answer(question=prompt, events=events)
         confidence = self._estimate_confidence_from_text(prediction_text)
-        related_event_ids = ",".join(str(event.id) for event in events[:120] if event.id is not None)
+        related_event_ids = self._normalize_related_event_ids_text(
+            ",".join(str(event.id) for event in events[:120] if event.id is not None)
+        )
         now = datetime.now(timezone.utc)
 
         ticket = AIPredictionTicket(
@@ -370,8 +384,8 @@ class AIWorkspaceService:
             raise ValueError("Prediction ticket not found")
         events = self._load_context_events(event_ids=event_ids or [], question=ticket.focus_query, limit=70)
         prompt = (
-            f"حدّث توقع التذكرة بشكل موجز وقابل للمتابعة. "
-            f"العنوان: {ticket.title}. التركيز: {ticket.focus_query}. ملاحظة: {note or 'بدون'}."
+            f"Ø­Ø¯Ù‘Ø« ØªÙˆÙ‚Ø¹ Ø§Ù„ØªØ°ÙƒØ±Ø© Ø¨Ø´ÙƒÙ„ Ù…ÙˆØ¬Ø² ÙˆÙ‚Ø§Ø¨Ù„ Ù„Ù„Ù…ØªØ§Ø¨Ø¹Ø©. "
+            f"Ø§Ù„Ø¹Ù†ÙˆØ§Ù†: {ticket.title}. Ø§Ù„ØªØ±ÙƒÙŠØ²: {ticket.focus_query}. Ù…Ù„Ø§Ø­Ø¸Ø©: {note or 'Ø¨Ø¯ÙˆÙ†'}."
         )
         update_text = self._generate_answer(question=prompt, events=events)
         update = AIPredictionUpdate(
@@ -383,7 +397,9 @@ class AIWorkspaceService:
         self.session.add(update)
         ticket.updated_at = datetime.now(timezone.utc)
         if events:
-            ids_text = ",".join(str(event.id) for event in events[:120] if event.id is not None)
+            ids_text = self._normalize_related_event_ids_text(
+                ",".join(str(event.id) for event in events[:120] if event.id is not None)
+            )
             if ids_text:
                 ticket.related_event_ids = ids_text
         self.session.add(ticket)
@@ -407,10 +423,11 @@ class AIWorkspaceService:
         ticket.status = status
         ticket.updated_at = datetime.now(timezone.utc)
         self.session.add(ticket)
+        outcome_ar = self._outcome_label_ar(outcome)
         update = AIPredictionUpdate(
             ticket_id=ticket.id or 0,
             kind="outcome",
-            content=f"Outcome: {outcome}. {note or ''}".strip(),
+            content=f"ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù†ØªÙŠØ¬Ø©: {outcome_ar}. {note or ''}".strip(),
             outcome=outcome,
         )
         self.session.add(update)
@@ -419,36 +436,496 @@ class AIWorkspaceService:
         self.session.refresh(update)
         return ticket, update
 
-    def auto_update_predictions_for_event(self, event: Event) -> list[AIPredictionUpdate]:
-        text = " ".join(filter(None, [event.title, event.summary, event.details, event.tags])).lower()
-        if not text:
-            return []
-        tickets = self.session.exec(
-            select(AIPredictionTicket).where(AIPredictionTicket.status.in_(["open", "watching"])).limit(80)
-        ).all()
+    def auto_review_prediction_tickets(
+        self,
+        *,
+        min_interval_minutes: int = DEFAULT_PREDICTION_REVIEW_INTERVAL_MINUTES,
+        limit: int = 120,
+    ) -> list[dict[str, Any]]:
         now = datetime.now(timezone.utc)
-        created: list[AIPredictionUpdate] = []
+        tickets = self.session.exec(
+            select(AIPredictionTicket)
+            .where(AIPredictionTicket.status.in_(["open", "watching"]))
+            .order_by(asc(AIPredictionTicket.updated_at))
+            .limit(limit)
+        ).all()
+
+        reviewed: list[dict[str, Any]] = []
         for ticket in tickets:
-            tokens = [token for token in re.split(r"\s+", ticket.focus_query.lower()) if len(token) >= 4]
-            if not tokens:
+            last_touch = self._as_utc(ticket.updated_at or ticket.created_at or now)
+            if last_touch and now - last_touch < timedelta(minutes=max(1, min_interval_minutes)):
                 continue
-            if not any(token in text for token in tokens[:10]):
+
+            due_at = self._prediction_due_at(ticket)
+            scope = self._extract_ticket_scope(ticket=ticket, now=now, due_at=due_at)
+            recent_events = self._load_prediction_review_events(ticket=ticket, now=now, limit=220)
+            score, evidence = self._score_prediction_against_events(
+                ticket=ticket,
+                events=recent_events,
+                now=now,
+            )
+            prev_status = str(ticket.status or "open").lower()
+            prev_outcome = str(ticket.outcome or "unknown").lower()
+            is_due = due_at <= now
+            next_status = "resolved" if is_due else "watching"
+            if is_due:
+                if score >= 0.67:
+                    next_outcome = "correct"
+                elif score >= 0.40:
+                    next_outcome = "partial"
+                else:
+                    next_outcome = "wrong"
+            else:
+                next_outcome = "unknown"
+
+            next_confidence = max(0.05, min(0.99, round(score, 2)))
+            next_related_event_ids = self._normalize_related_event_ids_text(ticket.related_event_ids or "")
+            if evidence:
+                related_ids = self._normalize_related_event_ids_text(
+                    ",".join(str(event.id) for event, _ in evidence[:120] if event.id is not None)
+                )
+                if related_ids:
+                    next_related_event_ids = related_ids
+
+            status_text = self._status_label_ar(next_status)
+            outcome_text = self._outcome_label_ar(next_outcome)
+            next_note = self._build_auto_review_note(
+                ticket=ticket,
+                scope=scope,
+                events_scanned=len(recent_events),
+                score=score,
+                due_at=due_at,
+                now=now,
+                evidence=evidence,
+                status_text=status_text,
+                outcome_text=outcome_text,
+            )
+            next_update_outcome = next_outcome if next_status == "resolved" else None
+
+            prev_confidence = float(ticket.confidence or 0.0)
+            prev_related_event_ids = self._normalize_related_event_ids_text(ticket.related_event_ids or "")
+            confidence_changed = abs(prev_confidence - next_confidence) >= 0.03
+            related_changed = not self._related_ids_set_equal(prev_related_event_ids, next_related_event_ids)
+            state_changed = (
+                prev_status != next_status
+                or prev_outcome != next_outcome
+                or confidence_changed
+                or related_changed
+            )
+            last_update = self.session.exec(
+                select(AIPredictionUpdate)
+                .where(AIPredictionUpdate.ticket_id == (ticket.id or 0))
+                .order_by(desc(AIPredictionUpdate.created_at))
+                .limit(1)
+            ).first()
+            same_as_last_auto_review = bool(
+                last_update
+                and str(last_update.kind or "").lower() == "auto_review"
+                and self._normalize_text_for_compare(last_update.content) == self._normalize_text_for_compare(next_note)
+                and (last_update.outcome or None) == next_update_outcome
+            )
+            if same_as_last_auto_review and not state_changed:
                 continue
-            if ticket.updated_at and now - ticket.updated_at < timedelta(minutes=20):
-                continue
+
+            ticket.status = next_status
+            ticket.outcome = next_outcome
+            ticket.confidence = next_confidence
+            ticket.updated_at = now
+            ticket.related_event_ids = next_related_event_ids
+
             update = AIPredictionUpdate(
                 ticket_id=ticket.id or 0,
-                kind="auto",
-                content=f"تحديث تلقائي مرتبط بالتركيز ({ticket.focus_query}): {event.title}",
-                outcome=None,
+                kind="auto_review",
+                content=next_note,
+                outcome=next_update_outcome,
             )
-            ticket.updated_at = now
             self.session.add(ticket)
             self.session.add(update)
             self.session.commit()
+            self.session.refresh(ticket)
             self.session.refresh(update)
-            created.append(update)
-        return created
+            reviewed.append(
+                {
+                    "ticket_id": ticket.id,
+                    "update_id": update.id,
+                    "title": ticket.title,
+                    "score": ticket.confidence,
+                    "status": ticket.status,
+                    "outcome": ticket.outcome,
+                    "created_at": update.created_at,
+                    "outcome_changed": prev_outcome != next_outcome or prev_status != next_status,
+                }
+            )
+        return reviewed
+
+    @staticmethod
+    def _prediction_due_at(ticket: AIPredictionTicket) -> datetime:
+        created = AIWorkspaceService._as_utc(ticket.created_at or datetime.now(timezone.utc))
+        hours = max(1, int(ticket.horizon_hours or 24))
+        return created + timedelta(hours=hours)
+
+    @staticmethod
+    def _status_label_ar(status: str) -> str:
+        key = str(status or "").strip().lower()
+        if key == "resolved":
+            return "مغلق"
+        if key == "watching":
+            return "مراقبة"
+        if key == "open":
+            return "مفتوح"
+        return "غير معروف"
+
+    @staticmethod
+    def _outcome_label_ar(outcome: str) -> str:
+        key = str(outcome or "").strip().lower()
+        if key == "correct":
+            return "صحيح"
+        if key == "partial":
+            return "جزئي"
+        if key == "wrong":
+            return "خاطئ"
+        if key == "unknown":
+            return "غير محسوم"
+        return "غير محسوم"
+
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _normalize_text_for_compare(value: str) -> str:
+        return " ".join(str(value or "").split())
+
+    @staticmethod
+    def _normalize_digits(value: str) -> str:
+        digit_map = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+        return str(value or "").translate(digit_map)
+
+    @staticmethod
+    def _normalize_related_event_ids_text(value: str) -> str:
+        ids: set[int] = set()
+        for token in re.split(r"[,\s]+", str(value or "")):
+            token = token.strip()
+            if token.isdigit():
+                ids.add(int(token))
+        return ",".join(str(item) for item in sorted(ids))
+
+    @staticmethod
+    def _related_ids_set_equal(a: str, b: str) -> bool:
+        return AIWorkspaceService._normalize_related_event_ids_text(a) == AIWorkspaceService._normalize_related_event_ids_text(b)
+
+    @staticmethod
+    def _tokenize_prediction_text(text: str, *, min_len: int = 3, max_tokens: int = 40) -> list[str]:
+        tokens = re.findall(r"[a-zA-Z0-9\u0600-\u06FF_]+", (text or "").lower())
+        seen: set[str] = set()
+        out: list[str] = []
+        for token in tokens:
+            if len(token) < min_len:
+                continue
+            if token in seen:
+                continue
+            seen.add(token)
+            out.append(token)
+            if len(out) >= max_tokens:
+                break
+        return out
+
+    @staticmethod
+    def _extract_scope_field(text: str, keys: list[str]) -> str:
+        body = str(text or "")
+        for key in keys:
+            match = re.search(rf"(?im)^\s*{re.escape(key)}\s*[:=]\s*(.+?)\s*$", body)
+            if match:
+                return match.group(1).strip()
+        return ""
+
+    @staticmethod
+    def _parse_scope_date(value: str) -> datetime | None:
+        text = AIWorkspaceService._normalize_digits(value)
+        if not text:
+            return None
+
+        iso_match = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", text)
+        if iso_match:
+            year, month, day = (int(iso_match.group(i)) for i in (1, 2, 3))
+            try:
+                return datetime(year, month, day, tzinfo=timezone.utc)
+            except ValueError:
+                return None
+
+        dmy_match = re.search(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", text)
+        if dmy_match:
+            day, month, year = (int(dmy_match.group(i)) for i in (1, 2, 3))
+            try:
+                return datetime(year, month, day, tzinfo=timezone.utc)
+            except ValueError:
+                return None
+
+        return None
+
+    @staticmethod
+    def _country_markers(country_text: str) -> list[str]:
+        raw = str(country_text or "").strip().lower()
+        if not raw:
+            return []
+
+        aliases = {
+            "uae": ["uae", "united arab emirates", "dubai", "abu dhabi", "الإمارات", "الامارات", "أبوظبي", "دبي"],
+            "الإمارات": ["uae", "united arab emirates", "dubai", "abu dhabi", "الإمارات", "الامارات", "أبوظبي", "دبي"],
+            "saudi arabia": ["saudi", "saudi arabia", "ksa", "السعودية", "الرياض", "جدة"],
+            "السعودية": ["saudi", "saudi arabia", "ksa", "السعودية", "الرياض", "جدة"],
+            "qatar": ["qatar", "doha", "قطر", "الدوحة"],
+            "قطر": ["qatar", "doha", "قطر", "الدوحة"],
+            "kuwait": ["kuwait", "الكويت"],
+            "الكويت": ["kuwait", "الكويت"],
+            "bahrain": ["bahrain", "البحرين", "المنامة"],
+            "البحرين": ["bahrain", "البحرين", "المنامة"],
+            "oman": ["oman", "عمان", "مسقط"],
+            "عمان": ["oman", "عمان", "مسقط"],
+            "jordan": ["jordan", "الأردن", "amman"],
+            "الأردن": ["jordan", "الأردن", "amman"],
+        }
+
+        markers: set[str] = {raw}
+        for key, values in aliases.items():
+            if raw == key or raw in values:
+                markers.add(key)
+                markers.update(values)
+        return sorted({item.lower() for item in markers if item}, key=len, reverse=True)
+
+    def _ticket_scope_start(self, *, ticket: AIPredictionTicket, now: datetime, from_text: str) -> datetime:
+        parsed_from = self._parse_scope_date(from_text)
+        if parsed_from is not None:
+            start = parsed_from
+        else:
+            start = self._as_utc(ticket.created_at or now)
+            related_ids_text = self._normalize_related_event_ids_text(ticket.related_event_ids or "")
+            if related_ids_text:
+                related_ids = [int(token) for token in related_ids_text.split(",") if token.isdigit()]
+                if related_ids:
+                    rows = self.session.exec(select(Event).where(Event.id.in_(related_ids))).all()
+                    if rows:
+                        min_related = min(self._as_utc(row.event_time) for row in rows)
+                        if min_related < start:
+                            start = min_related
+
+        min_allowed = now - timedelta(days=45)
+        if start < min_allowed:
+            start = min_allowed
+        return start
+
+    def _extract_ticket_scope(self, *, ticket: AIPredictionTicket, now: datetime, due_at: datetime) -> dict[str, Any]:
+        request_text = str(ticket.request_text or "")
+        country = self._extract_scope_field(request_text, ["scope_country", "الدولة المستهدفة"]) or ""
+        topic = self._extract_scope_field(request_text, ["scope_topic", "الموضوع"]) or ""
+        from_text = self._extract_scope_field(request_text, ["scope_from", "analysis_date_from", "analysis_from"]) or ""
+
+        start = self._ticket_scope_start(ticket=ticket, now=now, from_text=from_text)
+        end = now if due_at > now else due_at
+        if end <= start:
+            end = now
+
+        return {
+            "country": country,
+            "topic": topic,
+            "from_text": from_text,
+            "start": start,
+            "end": end,
+            "country_tokens": self._country_markers(country),
+            "topic_tokens": self._tokenize_prediction_text(topic, min_len=3, max_tokens=12),
+            "focus_tokens": self._tokenize_prediction_text(ticket.focus_query or "", min_len=3, max_tokens=18),
+            "request_tokens": self._tokenize_prediction_text(request_text, min_len=4, max_tokens=24),
+        }
+
+    @staticmethod
+    def _event_review_text(event: Event) -> str:
+        return " ".join(
+            [
+                str(event.title or ""),
+                str(event.summary or ""),
+                str(event.details or ""),
+                str(event.tags or ""),
+                str(event.ai_assessment or ""),
+                str(event.source_name or ""),
+            ]
+        ).lower()
+
+    def _load_prediction_review_events(
+        self,
+        *,
+        ticket: AIPredictionTicket,
+        now: datetime,
+        limit: int,
+    ) -> list[Event]:
+        due_at = self._prediction_due_at(ticket)
+        scope = self._extract_ticket_scope(ticket=ticket, now=now, due_at=due_at)
+        start = self._as_utc(scope["start"])
+        end = self._as_utc(scope["end"])
+
+        rows = self.session.exec(
+            select(Event)
+            .where(Event.event_time >= start)
+            .where(Event.event_time <= end)
+            .order_by(desc(Event.event_time))
+            .limit(2400)
+        ).all()
+        if not rows:
+            return []
+
+        related_ids = {
+            int(token)
+            for token in self._normalize_related_event_ids_text(ticket.related_event_ids or "").split(",")
+            if token.isdigit()
+        }
+
+        focus_tokens = scope["focus_tokens"]
+        request_tokens = scope["request_tokens"]
+        topic_tokens = scope["topic_tokens"]
+        country_tokens = scope["country_tokens"]
+        signal_tokens = [*focus_tokens, *topic_tokens, *request_tokens]
+
+        ranked: list[tuple[float, Event]] = []
+        for row in rows:
+            text = self._event_review_text(row)
+            score = 0.0
+            if row.id in related_ids:
+                score += 4.0
+            if country_tokens and any(token in text for token in country_tokens):
+                score += 3.0
+            if topic_tokens and any(token in text for token in topic_tokens):
+                score += 2.0
+            if signal_tokens:
+                score += min(4.0, sum(1 for token in signal_tokens if token in text) * 0.6)
+
+            if score <= 0:
+                continue
+            score += float(row.severity or 1) * 0.4
+            ranked.append((score, row))
+
+        if not ranked:
+            return rows[:limit]
+
+        ranked.sort(key=lambda item: (item[0], self._as_utc(item[1].event_time).timestamp()), reverse=True)
+        return [row for _, row in ranked[:limit]]
+
+    def _score_prediction_against_events(
+        self,
+        *,
+        ticket: AIPredictionTicket,
+        events: list[Event],
+        now: datetime,
+    ) -> tuple[float, list[tuple[Event, list[str]]]]:
+        if not events:
+            return 0.15, []
+
+        focus_tokens = self._tokenize_prediction_text(ticket.focus_query or "", min_len=3, max_tokens=18)
+        prediction_tokens = self._tokenize_prediction_text(ticket.prediction_text or "", min_len=4, max_tokens=18)
+        request_tokens = self._tokenize_prediction_text(ticket.request_text or "", min_len=4, max_tokens=18)
+
+        signal_tokens: list[str] = []
+        seen: set[str] = set()
+        for token in [*focus_tokens, *prediction_tokens, *request_tokens]:
+            if token in seen:
+                continue
+            seen.add(token)
+            signal_tokens.append(token)
+            if len(signal_tokens) >= 28:
+                break
+
+        if not signal_tokens:
+            signal_tokens = ["gulf", "الخليج", "war", "حرب"]
+
+        related_ids = {
+            int(token)
+            for token in self._normalize_related_event_ids_text(ticket.related_event_ids or "").split(",")
+            if token.isdigit()
+        }
+
+        evidence: list[tuple[Event, list[str]]] = []
+        total_hit_units = 0.0
+        for event in events:
+            text = self._event_review_text(event)
+            hits = [token for token in signal_tokens if token in text]
+            if not hits and event.id in related_ids:
+                hits = ["مرتبط_سابقاً"]
+            if not hits:
+                continue
+            evidence.append((event, hits[:8]))
+            total_hit_units += min(5, len(hits))
+
+        if not evidence:
+            return 0.18, []
+
+        top = evidence[:16]
+        token_budget = max(8, len(signal_tokens) * 1.7)
+        hit_strength = min(1.0, total_hit_units / token_budget)
+        matched_ratio = min(1.0, len(top) / max(6, min(20, len(events))))
+        severity = min(1.0, sum((event.severity or 1) for event, _ in top) / (5.0 * len(top)))
+
+        newest_event_time = max(self._as_utc(event.event_time) for event, _ in top)
+        horizon_hours = max(6, int(ticket.horizon_hours or 24))
+        recency = 1.0 - min(1.0, max(0.0, (now - newest_event_time).total_seconds() / 3600.0) / horizon_hours)
+
+        score = (0.40 * hit_strength) + (0.25 * matched_ratio) + (0.25 * severity) + (0.10 * recency)
+        return round(max(0.05, min(0.99, score)), 2), top
+
+    def _build_auto_review_note(
+        self,
+        *,
+        ticket: AIPredictionTicket,
+        scope: dict[str, Any],
+        events_scanned: int,
+        score: float,
+        due_at: datetime,
+        now: datetime,
+        evidence: list[tuple[Event, list[str]]],
+        status_text: str,
+        outcome_text: str,
+    ) -> str:
+        score_text = f"{round(score * 100)}%"
+        due_text = due_at.astimezone(timezone.utc).isoformat()
+        start_text = self._as_utc(scope.get("start", now)).date().isoformat()
+        end_text = self._as_utc(scope.get("end", now)).date().isoformat()
+        country = str(scope.get("country") or "غير محدد")
+        topic = str(scope.get("topic") or "غير محدد")
+
+        if score >= 0.67:
+            trend = "اتجاه مؤيد للتوقع الأصلي مع اتساق جيد في الأدلة."
+        elif score >= 0.40:
+            trend = "اتجاه مختلط: جزء من الأدلة يؤيد التوقع وجزء يحتاج تحقق إضافي."
+        else:
+            trend = "اتجاه ضعيف للتوقع الحالي؛ الأدلة المتاحة لا تدعمه بشكل كافٍ."
+
+        lines = [
+            "مراجعة آلية للتذكرة.",
+            f"عنوان التذكرة: {ticket.title}",
+            f"التركيز: {ticket.focus_query}",
+            f"النطاق: {country} | {topic} | من {start_text} إلى {end_text}",
+            f"الحالة: {status_text} | النتيجة: {outcome_text} | الدرجة: {score_text}",
+            f"الأحداث المطابقة: {len(evidence)} من أصل {events_scanned} حدث ضمن نطاق التذكرة.",
+            f"موعد الاستحقاق (UTC): {due_text}",
+            f"قراءة تحليلية: {trend}",
+        ]
+
+        if evidence:
+            lines.append("أدلة القرار (مرتبطة بموضوع التذكرة فقط):")
+            for event, hits in evidence[:3]:
+                source_name = str(event.source_name or "مصدر غير محدد")[:60]
+                title = str(event.title or "")[:120]
+                hit_text = ", ".join(hits[:4])
+                lines.append(f"- [S{event.severity}] {source_name}: {title} | إشارات: {hit_text}")
+        else:
+            lines.append("لا توجد أدلة كافية ضمن نطاق التذكرة حتى الآن؛ يستمر الرصد دون تغيير قرار التذكرة.")
+
+        lines.append("توقع قصير المدى: استمر في نفس مسار التذكرة مع تحديث التقييم عند ظهور أدلة أقوى داخل نفس النطاق.")
+        return "\n".join(lines)[:3500]
+
+    def auto_update_predictions_for_event(self, event: Event) -> list[AIPredictionUpdate]:
+        # Keep scheduled ticket reviews as the single source of truth.
+        # Event-driven mini updates were producing feed-like noise.
+        return []
 
     def chat(self, message: str, event_ids: list[int] | None = None) -> tuple[AIChatMessage, AIInsight | None]:
         clean_message = message.strip()
@@ -468,7 +945,7 @@ class AIWorkspaceService:
         created_insight: AIInsight | None = None
         if self._should_create_insight(clean_message):
             created_insight = self.create_insight(
-                title="تحليل تلقائي من المحادثة",
+                title="ØªØ­Ù„ÙŠÙ„ ØªÙ„Ù‚Ø§Ø¦ÙŠ Ù…Ù† Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø©",
                 prompt=clean_message,
                 event_ids=event_ids or [],
             )
@@ -507,12 +984,12 @@ class AIWorkspaceService:
             if not report_prompt:
                 raise ValueError("prompt is required when insight_id is not provided")
             insight = self.create_insight(
-                title=title or "تقرير تحليلي",
+                title=title or "ØªÙ‚Ø±ÙŠØ± ØªØ­Ù„ÙŠÙ„ÙŠ",
                 prompt=report_prompt,
                 event_ids=event_ids or [],
             )
 
-        report_title = (title or insight.title or "تقرير تحليلي").strip()
+        report_title = (title or insight.title or "ØªÙ‚Ø±ÙŠØ± ØªØ­Ù„ÙŠÙ„ÙŠ").strip()
         created_at = datetime.now(timezone.utc)
         report_id = f"{created_at.strftime('%Y%m%d%H%M%S')}-{_slug(report_title)}"
         reports_dir = Path(settings.reports_dir)
@@ -556,8 +1033,8 @@ class AIWorkspaceService:
         for path in sorted(reports_dir.glob("*.md"), reverse=True):
             created_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
             content = path.read_text(encoding="utf-8")
-            first_line = next((line for line in content.splitlines() if line.startswith("# ")), "# تقرير")
-            title = first_line[2:].strip() if len(first_line) > 2 else "تقرير"
+            first_line = next((line for line in content.splitlines() if line.startswith("# ")), "# ØªÙ‚Ø±ÙŠØ±")
+            title = first_line[2:].strip() if len(first_line) > 2 else "ØªÙ‚Ø±ÙŠØ±"
             pdf_path = path.with_suffix(".pdf")
             items.append(
                 {
@@ -632,13 +1109,13 @@ class AIWorkspaceService:
 
     def _prioritized_types(self, question: str) -> list[str]:
         text = question.lower()
-        if self._keyword_match(text, {"خبر", "اخبار", "أخبار", "news", "latest", "اخر", "آخر"}):
+        if self._keyword_match(text, {"Ø®Ø¨Ø±", "Ø§Ø®Ø¨Ø§Ø±", "Ø£Ø®Ø¨Ø§Ø±", "news", "latest", "Ø§Ø®Ø±", "Ø¢Ø®Ø±"}):
             return ["news", "incident", "cyber", "social", "flight", "marine", "custom"]
-        if self._keyword_match(text, {"flight", "طيران", "air", "plane"}):
+        if self._keyword_match(text, {"flight", "Ø·ÙŠØ±Ø§Ù†", "air", "plane"}):
             return ["flight", "incident", "news", "marine", "cyber", "social", "custom"]
-        if self._keyword_match(text, {"marine", "ship", "vessel", "ملاحة", "بحر"}):
+        if self._keyword_match(text, {"marine", "ship", "vessel", "Ù…Ù„Ø§Ø­Ø©", "Ø¨Ø­Ø±"}):
             return ["marine", "incident", "news", "flight", "cyber", "social", "custom"]
-        if self._keyword_match(text, {"cyber", "سيبر", "malware", "ransomware"}):
+        if self._keyword_match(text, {"cyber", "Ø³ÙŠØ¨Ø±", "malware", "ransomware"}):
             return ["cyber", "incident", "news", "social", "flight", "marine", "custom"]
         return ["incident", "news", "cyber", "marine", "flight", "social", "custom"]
 
@@ -682,7 +1159,7 @@ class AIWorkspaceService:
             ),
         )
 
-        if self._keyword_match(question, {"خبر", "اخبار", "أخبار", "news", "latest", "اخر", "آخر"}):
+        if self._keyword_match(question, {"Ø®Ø¨Ø±", "Ø§Ø®Ø¨Ø§Ø±", "Ø£Ø®Ø¨Ø§Ø±", "news", "latest", "Ø§Ø®Ø±", "Ø¢Ø®Ø±"}):
             news_rows = [row for row in rows if row.source_type == "news"][:40]
             news_ids = {row.id for row in news_rows}
             remaining = [row for row in rows if row.id not in news_ids]
@@ -763,7 +1240,14 @@ class AIWorkspaceService:
             text = self._openai_text(
                 system_prompt=(
                     "You are an operations analyst for Gulf regional monitoring. "
-                    "Answer in Arabic with concise actionable points and one follow-up question."
+                    "Answer only in Arabic with concise actionable bullet points and one follow-up question. "
+                    "You MUST use all provided events (official/media/social) and not ignore non-official sources. "
+                    "For sensitive claims (fatalities, injuries, airport/critical infrastructure strikes), label confidence explicitly "
+                    "as one of: confirmed / probable / unconfirmed, and include source reference using event id and source_name. "
+                    "For mitigation planning, provide two tracks: current actions and predictive actions (next 6-24 hours). "
+                    "Avoid generic repeated mitigation text; tie each action to specific evidence, country context, and operational domain. "
+                    "If numbers conflict, prefer the latest official figure as confirmed and list alternatives as unconfirmed. "
+                    "Never invent numbers; if unavailable, state that clearly."
                 ),
                 user_payload={
                     "question": question,
@@ -775,8 +1259,8 @@ class AIWorkspaceService:
             if text:
                 return text
             return (
-                "تعذر الحصول على رد من OpenAI حالياً. "
-                "تحقق من صلاحية المفتاح، اسم النموذج، واتصال الإنترنت في الخادم."
+                "ØªØ¹Ø°Ø± Ø§Ù„Ø­ØµÙˆÙ„ Ø¹Ù„Ù‰ Ø±Ø¯ Ù…Ù† OpenAI Ø­Ø§Ù„ÙŠØ§Ù‹. "
+                "ØªØ­Ù‚Ù‚ Ù…Ù† ØµÙ„Ø§Ø­ÙŠØ© Ø§Ù„Ù…ÙØªØ§Ø­ØŒ Ø§Ø³Ù… Ø§Ù„Ù†Ù…ÙˆØ°Ø¬ØŒ ÙˆØ§ØªØµØ§Ù„ Ø§Ù„Ø¥Ù†ØªØ±Ù†Øª ÙÙŠ Ø§Ù„Ø®Ø§Ø¯Ù…."
             )
 
         return self._local_answer(question=question, events=events)
@@ -786,7 +1270,11 @@ class AIWorkspaceService:
             text = self._openai_text(
                 system_prompt=(
                     "Create an Arabic operational report for decision makers with sections: "
-                    "executive summary, key developments, risks, recommendations, and next questions."
+                    "executive summary, key developments, risks, recommendations, and next questions. "
+                    "Use all provided events and mark sensitive claims with confidence levels (confirmed/probable/unconfirmed). "
+                    "Mitigation recommendations must be domain-specific and split into current and predictive actions (next 6-24 hours). "
+                    "Do not repeat static boilerplate mitigation language across different reports. "
+                    "When casualty numbers conflict, keep latest official as confirmed and show alternatives as unconfirmed."
                 ),
                 user_payload={
                     "task": "Generate operational report in Arabic",
@@ -798,15 +1286,15 @@ class AIWorkspaceService:
             if text:
                 return text
             return (
-                "تعذر إنشاء التحليل عبر OpenAI حالياً. "
-                "تحقق من المفتاح والنموذج والاتصال ثم أعد المحاولة."
+                "ØªØ¹Ø°Ø± Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ø¹Ø¨Ø± OpenAI Ø­Ø§Ù„ÙŠØ§Ù‹. "
+                "ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„Ù…ÙØªØ§Ø­ ÙˆØ§Ù„Ù†Ù…ÙˆØ°Ø¬ ÙˆØ§Ù„Ø§ØªØµØ§Ù„ Ø«Ù… Ø£Ø¹Ø¯ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø©."
             )
 
         return self._local_report(prompt=prompt, events=events)
 
     def _local_answer(self, question: str, events: list[Event]) -> str:
         if not events:
-            return "لا توجد أحداث كافية حالياً. نفذ تحديثاً فورياً ثم أعد السؤال."
+            return "Ù„Ø§ ØªÙˆØ¬Ø¯ Ø£Ø­Ø¯Ø§Ø« ÙƒØ§ÙÙŠØ© Ø­Ø§Ù„ÙŠØ§Ù‹. Ù†ÙØ° ØªØ­Ø¯ÙŠØ«Ø§Ù‹ ÙÙˆØ±ÙŠØ§Ù‹ Ø«Ù… Ø£Ø¹Ø¯ Ø§Ù„Ø³Ø¤Ø§Ù„."
 
         source_counts = Counter(event.source_type for event in events)
         severe = [event for event in events if event.severity >= 4]
@@ -820,49 +1308,49 @@ class AIWorkspaceService:
         latest = events[0]
 
         lines = [
-            "ملخص مساعد الذكاء (وضع محلي):",
-            f"- أحدث حدث: {latest.title}",
-            f"- التوزيع حسب المصدر: {dict(source_counts)}",
-            f"- الأحداث عالية الشدة: {len(severe)}",
-            f"- مزاج السوشال: {social_label} ({social_score})",
-            f"- سؤالك: {question}",
+            "Ù…Ù„Ø®Øµ Ù…Ø³Ø§Ø¹Ø¯ Ø§Ù„Ø°ÙƒØ§Ø¡ (ÙˆØ¶Ø¹ Ù…Ø­Ù„ÙŠ):",
+            f"- Ø£Ø­Ø¯Ø« Ø­Ø¯Ø«: {latest.title}",
+            f"- Ø§Ù„ØªÙˆØ²ÙŠØ¹ Ø­Ø³Ø¨ Ø§Ù„Ù…ØµØ¯Ø±: {dict(source_counts)}",
+            f"- Ø§Ù„Ø£Ø­Ø¯Ø§Ø« Ø¹Ø§Ù„ÙŠØ© Ø§Ù„Ø´Ø¯Ø©: {len(severe)}",
+            f"- Ù…Ø²Ø§Ø¬ Ø§Ù„Ø³ÙˆØ´Ø§Ù„: {social_label} ({social_score})",
+            f"- Ø³Ø¤Ø§Ù„Ùƒ: {question}",
         ]
         if news:
-            lines.append("- آخر عناوين الأخبار:")
+            lines.append("- Ø¢Ø®Ø± Ø¹Ù†Ø§ÙˆÙŠÙ† Ø§Ù„Ø£Ø®Ø¨Ø§Ø±:")
             for item in news:
                 lines.append(f"  - {item.title}")
-        lines.append("ما الذي تريد التعمق فيه أكثر: الحرب، الملاحة، الطيران، أو الأمن السيبراني؟")
+        lines.append("Ù…Ø§ Ø§Ù„Ø°ÙŠ ØªØ±ÙŠØ¯ Ø§Ù„ØªØ¹Ù…Ù‚ ÙÙŠÙ‡ Ø£ÙƒØ«Ø±: Ø§Ù„Ø­Ø±Ø¨ØŒ Ø§Ù„Ù…Ù„Ø§Ø­Ø©ØŒ Ø§Ù„Ø·ÙŠØ±Ø§Ù†ØŒ Ø£Ùˆ Ø§Ù„Ø£Ù…Ù† Ø§Ù„Ø³ÙŠØ¨Ø±Ø§Ù†ÙŠØŸ")
         return "\n".join(lines)[:3500]
 
     def _local_report(self, prompt: str, events: list[Event]) -> str:
         if not events:
-            return "لا تتوفر بيانات كافية لبناء تقرير حالياً."
+            return "Ù„Ø§ ØªØªÙˆÙØ± Ø¨ÙŠØ§Ù†Ø§Øª ÙƒØ§ÙÙŠØ© Ù„Ø¨Ù†Ø§Ø¡ ØªÙ‚Ø±ÙŠØ± Ø­Ø§Ù„ÙŠØ§Ù‹."
 
         source_counts = Counter(event.source_type for event in events)
         severe = [event for event in events if event.severity >= 4]
         top_events = events[:8]
         lines = [
-            f"الموضوع: {prompt}",
-            "الملخص:",
-            f"- تم تحليل {len(events)} حدثاً.",
-            f"- التوزيع حسب المصدر: {dict(source_counts)}.",
-            f"- عدد الأحداث عالية الشدة: {len(severe)}.",
+            f"Ø§Ù„Ù…ÙˆØ¶ÙˆØ¹: {prompt}",
+            "Ø§Ù„Ù…Ù„Ø®Øµ:",
+            f"- ØªÙ… ØªØ­Ù„ÙŠÙ„ {len(events)} Ø­Ø¯Ø«Ø§Ù‹.",
+            f"- Ø§Ù„ØªÙˆØ²ÙŠØ¹ Ø­Ø³Ø¨ Ø§Ù„Ù…ØµØ¯Ø±: {dict(source_counts)}.",
+            f"- Ø¹Ø¯Ø¯ Ø§Ù„Ø£Ø­Ø¯Ø§Ø« Ø¹Ø§Ù„ÙŠØ© Ø§Ù„Ø´Ø¯Ø©: {len(severe)}.",
             "",
-            "أهم المؤشرات:",
+            "Ø£Ù‡Ù… Ø§Ù„Ù…Ø¤Ø´Ø±Ø§Øª:",
         ]
         for event in top_events:
             lines.append(f"- [{event.source_type}] {event.title} (S{event.severity})")
         lines.extend(
             [
                 "",
-                "التوصيات:",
-                "- المتابعة اللحظية للمصادر الموثوقة.",
-                "- مراجعة التطورات كل 30 دقيقة في حالات التصعيد.",
-                "- نشر تقرير دوري لفرق العمليات.",
+                "Ø§Ù„ØªÙˆØµÙŠØ§Øª:",
+                "- Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ù„Ø­Ø¸ÙŠØ© Ù„Ù„Ù…ØµØ§Ø¯Ø± Ø§Ù„Ù…ÙˆØ«ÙˆÙ‚Ø©.",
+                "- Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„ØªØ·ÙˆØ±Ø§Øª ÙƒÙ„ 30 Ø¯Ù‚ÙŠÙ‚Ø© ÙÙŠ Ø­Ø§Ù„Ø§Øª Ø§Ù„ØªØµØ¹ÙŠØ¯.",
+                "- Ù†Ø´Ø± ØªÙ‚Ø±ÙŠØ± Ø¯ÙˆØ±ÙŠ Ù„ÙØ±Ù‚ Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª.",
                 "",
-                "أسئلة متابعة:",
-                "- هل تريد تركيز التقرير على سيناريو الحرب فقط؟",
-                "- هل تريد مقارنة الأخبار الرسمية مع إشارات السوشال؟",
+                "Ø£Ø³Ø¦Ù„Ø© Ù…ØªØ§Ø¨Ø¹Ø©:",
+                "- Ù‡Ù„ ØªØ±ÙŠØ¯ ØªØ±ÙƒÙŠØ² Ø§Ù„ØªÙ‚Ø±ÙŠØ± Ø¹Ù„Ù‰ Ø³ÙŠÙ†Ø§Ø±ÙŠÙˆ Ø§Ù„Ø­Ø±Ø¨ ÙÙ‚Ø·ØŸ",
+                "- Ù‡Ù„ ØªØ±ÙŠØ¯ Ù…Ù‚Ø§Ø±Ù†Ø© Ø§Ù„Ø£Ø®Ø¨Ø§Ø± Ø§Ù„Ø±Ø³Ù…ÙŠØ© Ù…Ø¹ Ø¥Ø´Ø§Ø±Ø§Øª Ø§Ù„Ø³ÙˆØ´Ø§Ù„ØŸ",
             ]
         )
         return "\n".join(lines)[:6000]
@@ -881,51 +1369,51 @@ class AIWorkspaceService:
         severe_count = sum(1 for event in events if event.severity >= 4)
         top_events = events[:12]
         executive = _clean_lines(insight_content)
-        executive_text = " ".join(line for line in executive if line)[:900] or "لا يوجد ملخص متاح."
+        executive_text = " ".join(line for line in executive if line)[:900] or "Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…Ù„Ø®Øµ Ù…ØªØ§Ø­."
 
         lines: list[str] = [
             f"# {report_title}",
             "",
-            "## بيانات التقرير",
-            f"- رقم التقرير: {report_id}",
-            f"- وقت الإنشاء (UTC): {created_at.isoformat()}",
-            f"- موضوع الطلب: {prompt or 'غير متاح'}",
+            "## Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØªÙ‚Ø±ÙŠØ±",
+            f"- Ø±Ù‚Ù… Ø§Ù„ØªÙ‚Ø±ÙŠØ±: {report_id}",
+            f"- ÙˆÙ‚Øª Ø§Ù„Ø¥Ù†Ø´Ø§Ø¡ (UTC): {created_at.isoformat()}",
+            f"- Ù…ÙˆØ¶ÙˆØ¹ Ø§Ù„Ø·Ù„Ø¨: {prompt or 'ØºÙŠØ± Ù…ØªØ§Ø­'}",
             "",
-            "## الملخص التنفيذي",
+            "## Ø§Ù„Ù…Ù„Ø®Øµ Ø§Ù„ØªÙ†ÙÙŠØ°ÙŠ",
             executive_text,
             "",
-            "## الصورة التشغيلية",
-            f"- عدد الأحداث المحللة: {len(events)}",
-            f"- الأحداث عالية الشدة (S4-S5): {severe_count}",
-            f"- توزيع المصادر: {dict(source_counts)}",
+            "## Ø§Ù„ØµÙˆØ±Ø© Ø§Ù„ØªØ´ØºÙŠÙ„ÙŠØ©",
+            f"- Ø¹Ø¯Ø¯ Ø§Ù„Ø£Ø­Ø¯Ø§Ø« Ø§Ù„Ù…Ø­Ù„Ù„Ø©: {len(events)}",
+            f"- Ø§Ù„Ø£Ø­Ø¯Ø§Ø« Ø¹Ø§Ù„ÙŠØ© Ø§Ù„Ø´Ø¯Ø© (S4-S5): {severe_count}",
+            f"- ØªÙˆØ²ÙŠØ¹ Ø§Ù„Ù…ØµØ§Ø¯Ø±: {dict(source_counts)}",
             "",
-            "## أبرز التطورات",
+            "## Ø£Ø¨Ø±Ø² Ø§Ù„ØªØ·ÙˆØ±Ø§Øª",
         ]
         if not top_events:
-            lines.append("- لا توجد أحداث مرفقة بهذا التقرير.")
+            lines.append("- Ù„Ø§ ØªÙˆØ¬Ø¯ Ø£Ø­Ø¯Ø§Ø« Ù…Ø±ÙÙ‚Ø© Ø¨Ù‡Ø°Ø§ Ø§Ù„ØªÙ‚Ø±ÙŠØ±.")
         else:
             for event in top_events:
                 timestamp = event.event_time.isoformat()
                 details = f"[{event.source_type}] S{event.severity} | {timestamp} | {event.title}"
                 lines.append(f"- {details}")
                 if event.url:
-                    lines.append(f"  - رابط المصدر: {event.url}")
+                    lines.append(f"  - Ø±Ø§Ø¨Ø· Ø§Ù„Ù…ØµØ¯Ø±: {event.url}")
 
         lines.extend(
             [
                 "",
-                "## تحليل الذكاء الاصطناعي",
-                insight_content.strip() or "لا يوجد نص تحليل متاح.",
+                "## ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ",
+                insight_content.strip() or "Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù†Øµ ØªØ­Ù„ÙŠÙ„ Ù…ØªØ§Ø­.",
                 "",
-                "## توصيات القرار",
-                "- الاستمرار في مراقبة المصادر الموثوقة بوتيرة ثابتة مع عتبات تصعيد واضحة.",
-                "- التحقق من الأخبار المتعارضة عبر مصدرين موثوقين على الأقل قبل التعميم.",
-                "- إعادة التحليل المركز للأحداث المحددة قبل أي إحاطة تنفيذية.",
+                "## ØªÙˆØµÙŠØ§Øª Ø§Ù„Ù‚Ø±Ø§Ø±",
+                "- Ø§Ù„Ø§Ø³ØªÙ…Ø±Ø§Ø± ÙÙŠ Ù…Ø±Ø§Ù‚Ø¨Ø© Ø§Ù„Ù…ØµØ§Ø¯Ø± Ø§Ù„Ù…ÙˆØ«ÙˆÙ‚Ø© Ø¨ÙˆØªÙŠØ±Ø© Ø«Ø§Ø¨ØªØ© Ù…Ø¹ Ø¹ØªØ¨Ø§Øª ØªØµØ¹ÙŠØ¯ ÙˆØ§Ø¶Ø­Ø©.",
+                "- Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„Ø£Ø®Ø¨Ø§Ø± Ø§Ù„Ù…ØªØ¹Ø§Ø±Ø¶Ø© Ø¹Ø¨Ø± Ù…ØµØ¯Ø±ÙŠÙ† Ù…ÙˆØ«ÙˆÙ‚ÙŠÙ† Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„ Ù‚Ø¨Ù„ Ø§Ù„ØªØ¹Ù…ÙŠÙ….",
+                "- Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ù…Ø±ÙƒØ² Ù„Ù„Ø£Ø­Ø¯Ø§Ø« Ø§Ù„Ù…Ø­Ø¯Ø¯Ø© Ù‚Ø¨Ù„ Ø£ÙŠ Ø¥Ø­Ø§Ø·Ø© ØªÙ†ÙÙŠØ°ÙŠØ©.",
                 "",
-                "## أسئلة المتابعة",
-                "- ما السيناريو الذي يجب إعطاؤه أولوية خلال الـ 6 إلى 12 ساعة القادمة؟",
-                "- هل تحتاج موجزاً قطاعياً محدداً (طيران، ملاحة، سيبراني)؟",
-                "- هل نُنشر نسخة مختصرة للقيادة من هذا التقرير؟",
+                "## Ø£Ø³Ø¦Ù„Ø© Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©",
+                "- Ù…Ø§ Ø§Ù„Ø³ÙŠÙ†Ø§Ø±ÙŠÙˆ Ø§Ù„Ø°ÙŠ ÙŠØ¬Ø¨ Ø¥Ø¹Ø·Ø§Ø¤Ù‡ Ø£ÙˆÙ„ÙˆÙŠØ© Ø®Ù„Ø§Ù„ Ø§Ù„Ù€ 6 Ø¥Ù„Ù‰ 12 Ø³Ø§Ø¹Ø© Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©ØŸ",
+                "- Ù‡Ù„ ØªØ­ØªØ§Ø¬ Ù…ÙˆØ¬Ø²Ø§Ù‹ Ù‚Ø·Ø§Ø¹ÙŠØ§Ù‹ Ù…Ø­Ø¯Ø¯Ø§Ù‹ (Ø·ÙŠØ±Ø§Ù†ØŒ Ù…Ù„Ø§Ø­Ø©ØŒ Ø³ÙŠØ¨Ø±Ø§Ù†ÙŠ)ØŸ",
+                "- Ù‡Ù„ Ù†ÙÙ†Ø´Ø± Ù†Ø³Ø®Ø© Ù…Ø®ØªØµØ±Ø© Ù„Ù„Ù‚ÙŠØ§Ø¯Ø© Ù…Ù† Ù‡Ø°Ø§ Ø§Ù„ØªÙ‚Ø±ÙŠØ±ØŸ",
             ]
         )
         return "\n".join(lines).strip()
@@ -957,20 +1445,20 @@ class AIWorkspaceService:
                 y -= font_size + gap
 
         draw_line(title, bold=True, font_size=16, gap=7)
-        draw_line(f"تم الإنشاء (UTC): {created_at.isoformat()}", font_size=9, gap=8)
+        draw_line(f"ØªÙ… Ø§Ù„Ø¥Ù†Ø´Ø§Ø¡ (UTC): {created_at.isoformat()}", font_size=9, gap=8)
         y -= 4
 
         for raw in _clean_lines(markdown):
             if not raw:
                 y -= 6
                 continue
-            if raw.startswith("بيانات التقرير") or raw.startswith("الملخص التنفيذي"):
+            if raw.startswith("Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØªÙ‚Ø±ÙŠØ±") or raw.startswith("Ø§Ù„Ù…Ù„Ø®Øµ Ø§Ù„ØªÙ†ÙÙŠØ°ÙŠ"):
                 draw_line(raw, bold=True, font_size=13, gap=6)
                 continue
-            if raw.startswith("الصورة التشغيلية") or raw.startswith("أبرز التطورات"):
+            if raw.startswith("Ø§Ù„ØµÙˆØ±Ø© Ø§Ù„ØªØ´ØºÙŠÙ„ÙŠØ©") or raw.startswith("Ø£Ø¨Ø±Ø² Ø§Ù„ØªØ·ÙˆØ±Ø§Øª"):
                 draw_line(raw, bold=True, font_size=12, gap=6)
                 continue
-            if raw.startswith("تحليل الذكاء الاصطناعي") or raw.startswith("توصيات القرار") or raw.startswith("أسئلة المتابعة"):
+            if raw.startswith("ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ") or raw.startswith("ØªÙˆØµÙŠØ§Øª Ø§Ù„Ù‚Ø±Ø§Ø±") or raw.startswith("Ø£Ø³Ø¦Ù„Ø© Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©"):
                 draw_line(raw, bold=True, font_size=12, gap=6)
                 continue
             if raw.startswith("Report Metadata") or raw.startswith("Executive Summary"):
@@ -990,14 +1478,16 @@ class AIWorkspaceService:
     def _estimate_confidence_from_text(text: str) -> float:
         value = 0.55
         lower = (text or "").lower()
-        if "مرجح" in lower or "راجح" in lower or "high probability" in lower:
+        if "Ù…Ø±Ø¬Ø­" in lower or "Ø±Ø§Ø¬Ø­" in lower or "high probability" in lower:
             value += 0.15
-        if "غير مؤكد" in lower or "uncertain" in lower or "منخفض الاحتمال" in lower:
+        if "ØºÙŠØ± Ù…Ø¤ÙƒØ¯" in lower or "uncertain" in lower or "Ù…Ù†Ø®ÙØ¶ Ø§Ù„Ø§Ø­ØªÙ…Ø§Ù„" in lower:
             value -= 0.12
         return max(0.05, min(0.95, round(value, 2)))
 
     @staticmethod
     def _should_create_insight(message: str) -> bool:
         text = message.lower()
-        markers = {"تحليل", "تقرير", "analysis", "report", "dashboard", "war", "حرب"}
+        markers = {"ØªØ­Ù„ÙŠÙ„", "ØªÙ‚Ø±ÙŠØ±", "analysis", "report", "dashboard", "war", "Ø­Ø±Ø¨"}
         return any(marker in text for marker in markers)
+
+
