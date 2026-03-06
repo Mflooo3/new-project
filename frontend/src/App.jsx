@@ -2415,11 +2415,20 @@ function isLikelyMojibake(value) {
 function repairArabicMojibake(value) {
   const input = String(value || "");
   if (!isLikelyMojibake(input)) return input;
+  const decodePass = (candidate) => {
+    const bytes = Uint8Array.from(Array.from(String(candidate || "")).map((ch) => ch.charCodeAt(0) & 0xff));
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  };
   try {
-    const bytes = Uint8Array.from(Array.from(input).map((ch) => ch.charCodeAt(0) & 0xff));
-    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-    if (hasArabicScript(decoded)) return decoded;
-    return input;
+    let current = input;
+    for (let i = 0; i < 3; i += 1) {
+      const decoded = decodePass(current);
+      if (!decoded || decoded === current) break;
+      if (hasArabicScript(decoded)) return decoded;
+      if (!isLikelyMojibake(decoded)) return decoded;
+      current = decoded;
+    }
+    return current;
   } catch {
     return input;
   }
@@ -2428,6 +2437,10 @@ function repairArabicMojibake(value) {
 function normalizeLegacyText(value) {
   const text = repairArabicMojibake(cleanText(value));
   return text
+    .replace(/تعذر الحصول على رد من OpenAI/gi, "تم التحويل إلى التحليل المحلي (تعذر اتصال OpenAI)")
+    .replace(/تعذر إنشاء التحليل عبر OpenAI/gi, "تم التحويل إلى التحليل المحلي (تعذر اتصال OpenAI)")
+    .replace(/تحقق من صلاحية (?:المفتاح|المتاح)[^.]*\./gi, "")
+    .replace(/تحقق من (?:المفتاح|صلاحية المفتاح)[^.]*\./gi, "")
     .replace(/war_focus/gi, "تركيز الحرب")
     .replace(/\bauto_review\b/gi, "مراجعة آلية")
     .replace(/\bwatching\b/gi, "مراقبة")
@@ -2528,6 +2541,80 @@ function clampInt(value, min, max) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return min;
   return Math.max(min, Math.min(max, Math.round(numeric)));
+}
+
+function aiLineKey(value) {
+  return cleanText(String(value || ""))
+    .toLowerCase()
+    .replace(/[^\u0600-\u06FFa-z0-9\s]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupeAiLines(lines, exclude = []) {
+  const blocked = new Set(exclude.map((item) => aiLineKey(item)).filter(Boolean));
+  const out = [];
+  const seen = new Set();
+  for (const line of lines || []) {
+    const clean = sanitizeEventDetailText(line);
+    const key = aiLineKey(clean);
+    if (!clean || !key || blocked.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+  }
+  return out;
+}
+
+function parseStructuredAiAssessment(value) {
+  const text = normalizeLegacyText(value).replace(/\r/g, "\n");
+  if (!text.trim()) {
+    return { summary: "", operationalImpact: "", actions: [], triggers: [], evidence: [] };
+  }
+
+  const promptLeakPatterns = [
+    /^\s*(?:task|fields|output_schema|title|summary|details|source_type|relevance_score)\s*[:={]/i,
+    /^\s*[{\[\]}",]+$/,
+  ];
+  const lines = text
+    .split("\n")
+    .map((line) => sanitizeEventDetailText(line))
+    .map((line) => line.replace(/^[•\-–—]+\s*/, "").trim())
+    .filter(Boolean)
+    .filter((line) => !promptLeakPatterns.some((pattern) => pattern.test(line)));
+
+  const out = { summary: "", operationalImpact: "", actions: [], triggers: [], evidence: [] };
+  for (const line of lines) {
+    let match = line.match(/^(?:خلاصة|الملخص|summary)\s*[:：-]\s*(.+)$/i);
+    if (match) {
+      if (!out.summary) out.summary = sanitizeEventDetailText(match[1]);
+      continue;
+    }
+    match = line.match(/^(?:أثر\s*تشغيلي|الأثر\s*التشغيلي|operational impact)\s*[:：-]\s*(.+)$/i);
+    if (match) {
+      if (!out.operationalImpact) out.operationalImpact = sanitizeEventDetailText(match[1]);
+      continue;
+    }
+    match = line.match(/^(?:اقتراح(?:ات)?|إجراء(?:ات)?|action(?:s)?)\s*[:：-]\s*(.+)$/i);
+    if (match) {
+      out.actions.push(match[1]);
+      continue;
+    }
+    match = line.match(/^(?:مؤشر(?:ات)?\s*تصعيد|trigger(?:s)?)\s*[:：-]\s*(.+)$/i);
+    if (match) {
+      out.triggers.push(match[1]);
+      continue;
+    }
+    match = line.match(/^(?:دليل|أدلة|evidence)\s*[:：-]\s*(.+)$/i);
+    if (match) {
+      out.evidence.push(match[1]);
+      continue;
+    }
+  }
+
+  out.actions = dedupeAiLines(out.actions).slice(0, 4);
+  out.triggers = dedupeAiLines(out.triggers).slice(0, 4);
+  out.evidence = dedupeAiLines(out.evidence).slice(0, 4);
+  return out;
 }
 
 function buildAiActionSuggestions(row) {
@@ -2687,10 +2774,309 @@ function buildAiImpactBalance(row, operationalSummary) {
     netImpact = "المحصلة التشغيلية: الأثر أقرب للإيجابي مع استمرار المراقبة بدون تصعيد.";
   }
 
-  return { brief, potentialBenefit, potentialRisk, netImpact };
+  return { brief, potentialBenefit, potentialRisk, netImpact, positiveHits, negativeHits };
 }
 
-function buildAiAssessmentView(row) {
+function aiLaneLabel(lane) {
+  if (lane === "air") return "جوي";
+  if (lane === "marine") return "بحري";
+  if (lane === "cyber") return "سيبراني";
+  return "جيوسياسي";
+}
+
+function pickActionByWindow(lines, matcher, fallback = "") {
+  const match = (lines || []).find((line) => matcher.test(cleanText(line)));
+  return match || fallback;
+}
+
+function buildAiEvidenceRows(candidates, exclude = []) {
+  const blocked = new Set(exclude.map((item) => aiLineKey(item)).filter(Boolean));
+  const seen = new Set();
+  const out = [];
+  for (const candidate of candidates || []) {
+    const rows = toStructuredReadableBullets(candidate);
+    for (const row of rows) {
+      const text = sanitizeEventDetailText(row?.text || row);
+      const source = sanitizeEventDetailText(row?.source || "");
+      const key = aiLineKey(text);
+      if (!text || !key || blocked.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ text, source });
+      if (out.length >= 5) return out;
+    }
+  }
+  return out;
+}
+
+function buildAiDecisionOptions(sourceType, severity, countryLabel) {
+  const place = countryLabel || "النطاق";
+  const options = [
+    {
+      id: "A",
+      title: "مراقبة محافظة",
+      detail: `إبقاء الحالة في رصد خلفي داخل ${place} مع تحديث كل دورة دون تغيير تشغيلي كبير.`
+    },
+    {
+      id: "B",
+      title: "احتواء تشغيلي",
+      detail: `تعديل محدود في التشغيل داخل ${place} (مسارات/أولويات/جاهزية) مع مراجعة مستمرة للبيانات.`
+    },
+    {
+      id: "C",
+      title: "رفع الجاهزية",
+      detail: `إجراءات وقائية أعلى داخل ${place} واستدعاء تنسيق متعدد الجهات إذا استمر الضغط التصاعدي.`
+    },
+  ];
+  if (sourceType === "flight") {
+    options[1].detail = `إعادة توزيع مسارات الرحلات المرتبطة بـ${place} وتفعيل خطة استمرارية للمطارات الحساسة.`;
+    options[2].detail = `رفع جاهزية غرف الطيران والملاحة فورًا في ${place} عند أي موجة تحويل/إلغاء متتابعة.`;
+  } else if (sourceType === "marine") {
+    options[1].detail = `تحديث مسارات العبور البحري في ${place} مع تشديد تدقيق الموانئ ونقاط الاختناق.`;
+    options[2].detail = `تفعيل ممرات بديلة وقيود عبور وقائية في ${place} عند مؤشرات تهديد ملاحي متكرر.`;
+  } else if (sourceType === "cyber") {
+    options[1].detail = `رفع مستوى الرصد الدفاعي للأنظمة الحرجة في ${place} مع تدقيق سجل الأنشطة غير الاعتيادية.`;
+    options[2].detail = `تفعيل إجراءات عزل واحتواء متقدمة في ${place} عند مؤشرات تأثير تشغيلي مباشر.`;
+  }
+
+  const recommendedId = severity >= 4 ? "C" : severity >= 3 ? "B" : "A";
+  return { options, recommendedId };
+}
+
+function buildAiThresholds(sourceType) {
+  const common = [
+    "تكرار إشارات شدة S4 أو أعلى مرتين خلال 90 دقيقة.",
+    "ظهور تأكيد رسمي يناقض التقييم الحالي أو يضيف رقمًا مؤكدًا جديدًا.",
+  ];
+  if (sourceType === "flight") {
+    return [
+      ...common,
+      "انخفاض/ارتفاع حركة الرحلات المرتبطة بالدولة بأكثر من 20% خلال ساعة.",
+      "تكرار تحويل أو إلغاء 3 رحلات فأكثر على نفس المسار خلال نافذة قصيرة.",
+    ];
+  }
+  if (sourceType === "marine") {
+    return [
+      ...common,
+      "تحويل مسار 3 سفن أو أكثر قرب ممر حيوي خلال 120 دقيقة.",
+      "توقف أو تأخير ملاحي متتابع في ميناء رئيسي مرتبط بنفس الحدث.",
+    ];
+  }
+  if (sourceType === "cyber") {
+    return [
+      ...common,
+      "انتقال التهديد من مرحلة استكشاف إلى تأثير فعلي على خدمة تشغيلية.",
+      "تكرار إنذارات متشابهة عبر أكثر من نظام حرج خلال ساعتين.",
+    ];
+  }
+  return [
+    ...common,
+    "انتقال الحدث من خبر منفرد إلى سلسلة أحداث مترابطة بنفس الموضوع.",
+  ];
+}
+
+function eventTimeMs(row) {
+  return parsePossiblyDate(eventDisplayTime(row))?.getTime() ?? 0;
+}
+
+function impactLevelLabel(score) {
+  const value = Number(score || 0);
+  if (value >= 70) return "عال";
+  if (value >= 45) return "متوسط";
+  return "منخفض";
+}
+
+function keywordBoost(text, patterns, score) {
+  const src = cleanText(text).toLowerCase();
+  if (!src) return 0;
+  return patterns.some((pattern) => pattern.test(src)) ? score : 0;
+}
+
+function clampScore(value) {
+  return clampInt(value, 0, 100);
+}
+
+function buildUaeImpactRows(row, sourceType, severity, impact) {
+  const text = [row?.title, row?.summary, row?.details, row?.ai_assessment].filter(Boolean).join(" ");
+  const base = 18 + severity * 10;
+
+  const security = clampScore(
+    base +
+      keywordBoost(text, [/هجوم|استهداف|تهديد|attack|strike|missile|drone|injur|casualt|وفيات|إصابات/i], 24) +
+      keywordBoost(text, [/إمارات|الامارات|uae|abudhabi|dubai/i], 8)
+  );
+  const diplomacy = clampScore(
+    base - 3 +
+      keywordBoost(text, [/تصريح|بيان|مفاوض|قم[ةه]|diplom|minister|foreign|policy|قانون/i], 26) +
+      keywordBoost(text, [/gulf|gcc|الخليج/i], 6)
+  );
+  const aviation = clampScore(
+    base - 6 +
+      (sourceType === "flight" ? 30 : 0) +
+      keywordBoost(text, [/طيران|مطار|مجال جوي|flight|airspace|airport|route|cancel|divert/i], 24)
+  );
+  const marine = clampScore(
+    base - 8 +
+      (sourceType === "marine" ? 30 : 0) +
+      keywordBoost(text, [/بحر|ميناء|سفينة|ملاحة|marine|maritime|port|vessel|shipping|tanker/i], 26)
+  );
+  const economy = clampScore(
+    base - 8 +
+      keywordBoost(text, [/اقتصاد|سوق|نفط|تجارة|تأمين|cost|market|oil|trade|logistics|supply/i], 22) +
+      Math.max(0, impact?.negativeHits || 0) * 2
+  );
+
+  return [
+    { axis: "الأمن الداخلي", score: security, why: "يرتبط بمستوى التهديد المباشر واحتمال انتقاله لنطاق داخلي." },
+    { axis: "الدبلوماسية", score: diplomacy, why: "يقيس الضغط السياسي على تحركات الدولة ورسائلها الرسمية." },
+    { axis: "الطيران", score: aviation, why: "يعكس احتمالية تغير التشغيل الجوي أو المسارات أو وتيرة الرحلات." },
+    { axis: "الملاحة", score: marine, why: "يقيس أثر الخبر على مسارات العبور البحري والموانئ." },
+    { axis: "الاقتصاد", score: economy, why: "يرصد الأثر غير المباشر على السوق والتكلفة التشغيلية." },
+  ];
+}
+
+function buildGulfImpactRows(row, sourceType, severity, impact) {
+  const text = [row?.title, row?.summary, row?.details, row?.ai_assessment].filter(Boolean).join(" ");
+  const base = 20 + severity * 10;
+
+  const cohesion = clampScore(
+    base - 6 +
+      keywordBoost(text, [/مجلس التعاون|gcc|الخليج|قمة|تنسيق|collective|joint/i], 20) -
+      Math.max(0, impact?.negativeHits || 0) * 2
+  );
+  const transportPressure = clampScore(
+    base +
+      (sourceType === "flight" || sourceType === "marine" ? 18 : 0) +
+      keywordBoost(text, [/طيران|مطار|مجال جوي|بحر|ميناء|route|shipping|airspace|port/i], 22)
+  );
+  const escalation = clampScore(
+    base +
+      keywordBoost(text, [/تصعيد|هجوم|تهديد|strike|escalat|attack|missile|drone|تحذير/i], 24) +
+      Math.max(0, impact?.negativeHits || 0) * 3
+  );
+
+  return [
+    { axis: "تماسك الموقف الخليجي", score: cohesion, why: "يرصد قدرة التنسيق السياسي الخليجي تحت الضغط." },
+    { axis: "ضغط النقل الإقليمي", score: transportPressure, why: "يقيس احتمالية اضطراب الحركة الجوية/البحرية بين دول الخليج." },
+    { axis: "احتمالية التصعيد السياسي", score: escalation, why: "يعكس احتمال انتقال الخطاب إلى قرار سياسي أو ميداني أعلى." },
+  ];
+}
+
+function buildConfidenceReasons(row, confidence, evidenceRows, missingInfo) {
+  const reasons = [];
+  if (Number(row?.severity || 0) >= 4) {
+    reasons.push("الحدث عالي الشدة؛ ما يرفع حساسية التقييم لكنه يزيد احتمال التغير السريع.");
+  }
+  if (Number(row?.relevance_score || 0) >= 0.7) {
+    reasons.push("صلة الخبر عالية بنطاق المتابعة الحالي.");
+  } else if (Number(row?.relevance_score || 0) <= 0.35) {
+    reasons.push("صلة الخبر متوسطة/ضعيفة، لذلك تم تخفيض درجة اليقين.");
+  }
+  if (isTrustedEvent(row)) {
+    reasons.push("المصدر ضمن النطاق الموثوق أو ذو نمط معلوماتي معتبر.");
+  } else {
+    reasons.push("المصدر غير رسمي بالكامل؛ يلزم تحقق إضافي قبل رفع القرار.");
+  }
+  if (evidenceRows.length >= 3) {
+    reasons.push("توفر أدلة مختصرة كافية لبناء حكم تشغيلي أولي.");
+  } else {
+    reasons.push("عدد الأدلة المتاحة محدود؛ التقييم قابل للتعديل مع أي تأكيد جديد.");
+  }
+  if ((missingInfo || []).length > 0) {
+    reasons.push("وجود بيانات ناقصة يقلل الثقة ويؤخر الانتقال لقرار أعلى.");
+  }
+  reasons.push(`درجة الثقة الحالية: ${confidence}% (${confidenceBucketLabel(confidence)}).`);
+  return reasons.slice(0, 4);
+}
+
+function buildNoActionCost(sourceType, severity) {
+  const high = severity >= 4;
+  if (sourceType === "flight") {
+    return {
+      in6h: high
+        ? "خلال 6 ساعات: احتمال ارتفاع الإلغاءات/التحويلات دون استعداد مبكر."
+        : "خلال 6 ساعات: تزايد محدود في عدم اليقين التشغيلي للمسارات المرتبطة.",
+      in24h: high
+        ? "خلال 24 ساعة: اتساع الضغط على الحركة الجوية وخسارة كفاءة التشغيل."
+        : "خلال 24 ساعة: قرارات متأخرة قد ترفع التكلفة التشغيلية دون مبرر.",
+    };
+  }
+  if (sourceType === "marine") {
+    return {
+      in6h: high
+        ? "خلال 6 ساعات: ارتفاع احتمال التكدس/التأخير في مسارات العبور الحساسة."
+        : "خلال 6 ساعات: زيادة طفيفة في مخاطر التأخير الملاحي.",
+      in24h: high
+        ? "خلال 24 ساعة: تعطّل سلاسل بحرية مرتبطة وتكلفة أعلى على التوريد والتأمين."
+        : "خلال 24 ساعة: تراكم تأخيرات تشغيلية مع أثر اقتصادي تدريجي.",
+    };
+  }
+  return {
+    in6h: high
+      ? "خلال 6 ساعات: فقدان فرصة الاحتواء المبكر وارتفاع احتمالية القرار المتأخر."
+      : "خلال 6 ساعات: توسع محدود في الضبابية التشغيلية إذا لم تتم المتابعة.",
+    in24h: high
+      ? "خلال 24 ساعة: انتقال الحدث إلى مستوى قرار أعلى بتكلفة تنسيق أكبر."
+      : "خلال 24 ساعة: زيادة ضغط المتابعة على الفرق بدون تحسن نوعي في الرؤية.",
+  };
+}
+
+function getPreviousStoryRow(row, candidateRows) {
+  const rows = Array.isArray(candidateRows) ? candidateRows : [];
+  const currentKey = eventStoryDedupKey(row);
+  const currentTs = eventTimeMs(row);
+  return rows
+    .filter((item) => item?.id !== row?.id && eventStoryDedupKey(item) === currentKey)
+    .filter((item) => eventTimeMs(item) < currentTs)
+    .sort((a, b) => eventTimeMs(b) - eventTimeMs(a))[0];
+}
+
+function buildWhatsNewLine(row, candidateRows, previous = null) {
+  const prev = previous || getPreviousStoryRow(row, candidateRows);
+
+  if (!prev) {
+    return "لا يوجد تحديث سابق مطابق داخل نفس القصة؛ هذا أول إدخال مرصود في النافذة الحالية.";
+  }
+
+  const prevSeverity = Number(prev?.severity || 0);
+  const currSeverity = Number(row?.severity || 0);
+  if (currSeverity > prevSeverity) {
+    return `جديد: ارتفعت الشدة من S${prevSeverity} إلى S${currSeverity} مقارنةً بآخر تحديث مشابه.`;
+  }
+  if (currSeverity < prevSeverity) {
+    return `جديد: انخفضت الشدة من S${prevSeverity} إلى S${currSeverity} مقارنةً بآخر تحديث مشابه.`;
+  }
+  const prevSummary = aiLineKey(prev?.summary || prev?.title || "");
+  const currSummary = aiLineKey(row?.summary || row?.title || "");
+  if (prevSummary !== currSummary) {
+    return "جديد: المعلومة الأساسية محدثة بصياغة مختلفة دون تغيير واضح في مستوى الشدة.";
+  }
+  return "لا تغير جوهري منذ آخر تحديث مشابه؛ المتابعة مطلوبة فقط عند ظهور دليل جديد.";
+}
+
+function buildPoliticalReading(row, sourceType, severity, impact, scopeLabel) {
+  const laneLabel = aiLaneLabel(eventLane(row));
+  const lines = [];
+  lines.push(`قراءة المجال: الحدث ضمن مسار ${laneLabel} (${scopeLabel}).`);
+
+  if (severity >= 4 || (impact?.negativeHits || 0) > (impact?.positiveHits || 0) + 1) {
+    lines.push("القراءة السياسية: الإشارات الحالية تميل لرفع الضغط السياسي/التشغيلي أكثر من كونها خبرًا عابرًا.");
+  } else {
+    lines.push("القراءة السياسية: الحدث أقرب إلى ضغط إعلامي/سياسي قابل للاحتواء ما لم تظهر مؤشرات ميدانية مؤكدة.");
+  }
+
+  if (sourceType === "flight") {
+    lines.push("تأثير القرار السياسي يظهر سريعًا في الطيران عبر المسارات والقيود الوقائية.");
+  } else if (sourceType === "marine") {
+    lines.push("تأثير القرار السياسي يظهر في الملاحة عبر المسارات البحرية وأولوية العبور.");
+  } else if (sourceType === "cyber") {
+    lines.push("تأثير القرار السياسي يظهر عبر قواعد الاستجابة الرقمية وحماية البنية الحساسة.");
+  } else {
+    lines.push("تأثيره المرجح سياسي-إقليمي، ويحتاج ربطًا مباشرًا مع إشارات تشغيل فعلية قبل التصعيد.");
+  }
+  return lines.slice(0, 3);
+}
+
+function buildAiAssessmentView(row, candidateRows = []) {
   if (!row) {
     return {
       verdict: "غير متاح",
@@ -2698,30 +3084,174 @@ function buildAiAssessmentView(row) {
       confidenceLabel: "منخفضة",
       operationalSummary: "لا توجد بيانات كافية لبناء تقييم تشغيلي.",
       evidence: [],
+      evidenceRows: [],
       actions: [],
       triggers: [],
       missingInfo: [],
+      scopeLabel: "غير متاح",
+      whyItMatters: "لا يوجد سياق كافٍ.",
+      actionNow: "لا يوجد إجراء فوري متاح.",
+      actionNext: "لا يوجد إجراء قصير المدى متاح.",
+      actionFollow: "لا يوجد إجراء متابعة متاح.",
+      scenario6h: "لا يوجد سيناريو متاح.",
+      scenario24h: "لا يوجد سيناريو متاح.",
+      decisionOptions: [],
+      recommendedDecisionId: "",
+      thresholds: [],
+      contradictions: [],
+      impactVector: [],
+      whatsNew: "لا يوجد.",
+      politicalReading: [],
+      uaeImpactRows: [],
+      gulfImpactRows: [],
+      confidenceReasons: [],
+      noActionCost: { in6h: "", in24h: "" },
+      sectionDelta: {
+        summary: false,
+        political: false,
+        impact: false,
+        decision: false,
+        triggers: false,
+        confidence: false,
+        evidence: false,
+      },
     };
   }
 
   const severity = Number(row.severity || 0);
   const relevance = Number(row.relevance_score || 0);
+  const parsedAi = parseStructuredAiAssessment(row.ai_assessment);
   const assessment = sanitizeEventDetailText(row.ai_assessment);
   const summary = sanitizeEventDetailText(row.summary || row.details);
   const title = sanitizeEventDetailText(row.title);
-  const operationalSummary = assessment || summary || title || "لا يوجد وصف تشغيلي كافٍ.";
-  const evidenceCandidates = [summary, title]
-    .flatMap((part) => toBulletLines(part))
-    .map((line) => sanitizeEventDetailText(line))
-    .filter(Boolean);
-  const evidence = [...new Set(evidenceCandidates)].slice(0, 3);
+  const operationalSummary = parsedAi.summary || assessment || summary || title || "لا يوجد وصف تشغيلي كافٍ.";
+  const evidenceRows = buildAiEvidenceRows([...parsedAi.evidence, summary, title], [operationalSummary, parsedAi.operationalImpact]).slice(
+    0,
+    4
+  );
+  const evidence = evidenceRows.map((item) => item.text);
 
   let confidenceRaw = 42 + relevance * 28 + severity * 6;
   if (assessment) confidenceRaw += 8;
   if (summary) confidenceRaw += 6;
   if (row.latitude != null && row.longitude != null) confidenceRaw += 4;
   const confidence = clampInt(confidenceRaw, 35, 96);
-  const impact = buildAiImpactBalance(row, operationalSummary);
+  const impact = buildAiImpactBalance(row, parsedAi.operationalImpact || operationalSummary);
+  if (parsedAi.operationalImpact) {
+    impact.netImpact = `المحصلة التشغيلية: ${parsedAi.operationalImpact}`;
+  }
+  const actions = dedupeAiLines(
+    parsedAi.actions.length > 0 ? parsedAi.actions : buildAiActionSuggestions(row),
+    [operationalSummary]
+  );
+  const triggers = dedupeAiLines(
+    parsedAi.triggers.length > 0 ? parsedAi.triggers : buildAiEscalationTriggers(row),
+    [operationalSummary]
+  );
+  const missingInfo = buildAiMissingInfo(row);
+  const sourceType = String(row?.source_type || "").toLowerCase();
+  const lane = eventLane(row);
+  const laneLabel = aiLaneLabel(lane);
+  const transport = parseTransportContext(row);
+  const detailsMap = new Map(parseDetailsTokens(row?.details));
+  const countryLabel =
+    normalizeTransportValue(
+      transport.toCountry ||
+        transport.fromCountry ||
+        detailsMap.get("country") ||
+        detailsMap.get("country_name") ||
+        detailsMap.get("country_code") ||
+        row?.location
+    ) || "النطاق الإقليمي";
+
+  const routeHint =
+    sourceType === "flight" || sourceType === "marine"
+      ? routeArrowSummary(
+          transport.fromCountry || transport.fromPort || "غير محدد",
+          transport.toCountry || transport.toPort || "غير محدد"
+        )
+      : "";
+  const scopeLabel = routeHint ? `${laneLabel} | ${countryLabel} | ${routeHint}` : `${laneLabel} | ${countryLabel}`;
+
+  let whyItMatters = impact.netImpact;
+  if (sourceType === "flight") {
+    whyItMatters = `الخبر مرتبط بحركة الطيران (${routeHint || "مسار غير مكتمل"}) وقد يغيّر كثافة الرحلات القادمة/المغادرة خلال نافذة قصيرة.`;
+  } else if (sourceType === "marine") {
+    whyItMatters = `الخبر مرتبط بحركة الملاحة (${routeHint || "مسار غير مكتمل"}) ويؤثر على استمرارية العبور والموانئ الحساسة.`;
+  } else if (sourceType === "cyber") {
+    whyItMatters = "الخبر يمس استقرار الأنظمة الحساسة، وتأخر الاستجابة قد يحول الإشارة إلى أثر تشغيلي مباشر.";
+  } else if (severity >= 4) {
+    whyItMatters = "شدة الحدث مرتفعة وتكراره المحتمل يفرض قرارًا تشغيليًا مبكرًا بدل الانتظار حتى تتوسع الدائرة.";
+  }
+
+  const actionNow =
+    pickActionByWindow(actions, /(0-2|فوري|عاجل|الآن)/i, "") ||
+    "التحقق الفوري من أحدث دليل موثوق قبل أي قرار تشغيلي.";
+  const actionNext =
+    pickActionByWindow(actions, /(2-12|قصير|خلال\s*12)/i, "") ||
+    "مراجعة الاتجاه خلال الساعات القادمة وربط القرار بتغير الشدة والنطاق.";
+  const actionFollow =
+    pickActionByWindow(actions, /(12-24|24|متابعة)/i, "") ||
+    "تحديث خطة التشغيل كل دورة عند ظهور دليل أقوى أو تغير نمط الحدث.";
+
+  const scenario6h =
+    severity >= 4 || impact.negativeHits > impact.positiveHits
+      ? "احتمال استمرار ضغط تشغيلي قصير المدى مع حاجة لتعديل ميداني محدود."
+      : "مرجح بقاء الحدث في نطاق المتابعة بدون تصعيد تشغيلي واسع.";
+  const scenario24h =
+    severity >= 4
+      ? "إذا استمر نفس النمط، قد تنتقل الحالة إلى مستوى قرار أعلى متعدد الجهات خلال 24 ساعة."
+      : "إذا لم تظهر إشارات جديدة قوية، يبقى الحدث ضمن الرصد الخلفي مع تحديث دوري.";
+
+  const { options: decisionOptions, recommendedId: recommendedDecisionId } = buildAiDecisionOptions(sourceType, severity, countryLabel);
+  const thresholds = buildAiThresholds(sourceType);
+  const contradictions = dedupeAiLines(
+    [
+      ...missingInfo,
+      impact.negativeHits > 0 && impact.positiveHits > 0
+        ? "توجد إشارات إيجابية وسلبية متزامنة؛ يلزم فصل المؤكد عن غير المؤكد قبل رفع المستوى."
+        : "",
+      evidenceRows.length < 2 ? "عدد الأدلة المختصرة محدود؛ يلزم توسيع مصادر التحقق قبل التوصية النهائية." : "",
+    ].filter(Boolean)
+  );
+
+  const impactVector = [
+    {
+      label: "ضغط المخاطر",
+      value: clampInt(32 + severity * 11 + impact.negativeHits * 6 - impact.positiveHits * 2, 0, 100),
+      note: "كلما ارتفع الرقم، زادت الحاجة لضبط تشغيلي."
+    },
+    {
+      label: "استقرار التشغيل",
+      value: clampInt(74 + impact.positiveHits * 5 - severity * 8 - impact.negativeHits * 4, 0, 100),
+      note: "كلما ارتفع الرقم، كانت الاستمرارية أفضل."
+    },
+    {
+      label: "تقلب المشهد",
+      value: clampInt(28 + Math.max(0, impact.negativeHits - impact.positiveHits) * 10 + severity * 7, 0, 100),
+      note: "ارتفاعه يعني أن التقييم قد يتغير بسرعة."
+    },
+  ];
+  const previousRow = getPreviousStoryRow(row, candidateRows);
+  const whatsNew = buildWhatsNewLine(row, candidateRows, previousRow);
+  const politicalReading = buildPoliticalReading(row, sourceType, severity, impact, scopeLabel);
+  const uaeImpactRows = buildUaeImpactRows(row, sourceType, severity, impact);
+  const gulfImpactRows = buildGulfImpactRows(row, sourceType, severity, impact);
+  const confidenceReasons = buildConfidenceReasons(row, confidence, evidenceRows, missingInfo);
+  const noActionCost = buildNoActionCost(sourceType, severity);
+  const previousSummaryKey = aiLineKey(sanitizeEventDetailText(previousRow?.summary || previousRow?.details || previousRow?.title || ""));
+  const currentSummaryKey = aiLineKey(summary || title || operationalSummary);
+  const previousSeverity = Number(previousRow?.severity || 0);
+  const hasCoreChange = !previousRow || previousSummaryKey !== currentSummaryKey || previousSeverity !== severity;
+  const sectionDelta = {
+    summary: hasCoreChange,
+    political: hasCoreChange || sourceType !== String(previousRow?.source_type || "").toLowerCase(),
+    impact: hasCoreChange || Math.abs((impact?.negativeHits || 0) - (impact?.positiveHits || 0)) > 0,
+    decision: !previousRow || previousSeverity !== severity,
+    triggers: hasCoreChange,
+    confidence: !previousRow || Math.abs(confidence - clampInt(42 + Number(previousRow?.relevance_score || 0) * 28 + previousSeverity * 6, 35, 96)) >= 4,
+    evidence: !previousRow || evidenceRows.length !== 0,
+  };
 
   return {
     verdict: aiVerdictBySeverity(severity),
@@ -2729,24 +3259,46 @@ function buildAiAssessmentView(row) {
     confidenceLabel: confidenceBucketLabel(confidence),
     operationalSummary,
     evidence,
-    actions: buildAiActionSuggestions(row),
-    triggers: buildAiEscalationTriggers(row),
-    missingInfo: buildAiMissingInfo(row),
+    evidenceRows,
+    actions,
+    triggers,
+    missingInfo,
     impact,
+    scopeLabel,
+    whyItMatters,
+    actionNow,
+    actionNext,
+    actionFollow,
+    scenario6h,
+    scenario24h,
+    decisionOptions,
+    recommendedDecisionId,
+    thresholds,
+    contradictions,
+    impactVector,
+    whatsNew,
+    politicalReading,
+    uaeImpactRows,
+    gulfImpactRows,
+    confidenceReasons,
+    noActionCost,
+    sectionDelta,
   };
 }
 
 function predictionWindowLabel(row) {
-  const hours = Number(row?.window_hours || 0);
-  if (Number.isFinite(hours) && hours > 0) {
-    if (hours % 24 === 0) {
-      const days = Math.max(1, Math.round(hours / 24));
+  const rawHours = Number(row?.window_hours);
+  if (Number.isFinite(rawHours) && rawHours >= 0) {
+    if (rawHours === 0) return "كامل الفترة";
+    if (rawHours % 24 === 0) {
+      const days = Math.max(1, Math.round(rawHours / 24));
       if (days === 1) return "آخر 24 ساعة";
       return `آخر ${days} أيام`;
     }
-    return `آخر ${hours} ساعة`;
+    return `آخر ${rawHours} ساعة`;
   }
-  const fallback = normalizeLegacyText(row?.window_label || "");
+  const fallback = normalizeLegacyText(row?.window_label || row?.window || "");
+  if (!fallback || isLikelyMojibake(fallback) || fallback.length > 40) return "نافذة التقييم";
   return fallback || "نافذة التقييم";
 }
 
@@ -2878,6 +3430,8 @@ export default function App() {
   const [videoEmbedIndexBySource, setVideoEmbedIndexBySource] = useState({});
   const [versionTab, setVersionTab] = useState("v2");
   const [aiTab, setAiTab] = useState("chat");
+  const [aiViewMode, setAiViewMode] = useState("exec");
+  const [predictionViewMode, setPredictionViewMode] = useState("exec");
   const [v2Lane, setV2Lane] = useState("all");
   const [v2UnreadOnly, setV2UnreadOnly] = useState(false);
   const [v2TrustedOnly, setV2TrustedOnly] = useState(true);
@@ -3476,8 +4030,208 @@ export default function App() {
   const analysisSelectionCount = selectedContextEventIds.length;
 
   const facts = useMemo(() => parseFacts(activeEvent), [activeEvent]);
-  const activeAiAssessment = useMemo(() => buildAiAssessmentView(activeEvent), [activeEvent]);
-  const popupAiAssessment = useMemo(() => buildAiAssessmentView(popupEvent), [popupEvent]);
+  const activeAiAssessment = useMemo(() => buildAiAssessmentView(activeEvent, sortedFilteredEvents), [activeEvent, sortedFilteredEvents]);
+  const popupAiAssessment = useMemo(() => buildAiAssessmentView(popupEvent, sortedFilteredEvents), [popupEvent, sortedFilteredEvents]);
+  const renderSectionDelta = (changed) => (
+    <span className={`ai-delta-badge ${changed ? "changed" : "stable"}`}>{changed ? "جديد" : "بدون تغيير"}</span>
+  );
+
+  const renderAiAssessmentBlocks = (assessment, prefix, mode = aiViewMode) => {
+    const execMode = mode === "exec";
+    return (
+      <div className="ai-assessment-view">
+        <div className="ai-assessment-kpis">
+          <span className="fact-pill">
+            <strong>الحكم:</strong> {assessment.verdict}
+          </span>
+          <span className="fact-pill">
+            <strong>الثقة:</strong> {assessment.confidence}% ({assessment.confidenceLabel})
+          </span>
+          <span className="fact-pill">
+            <strong>النطاق:</strong> {displayText(assessment.scopeLabel)}
+          </span>
+        </div>
+
+        <div className="ai-assessment-group">
+          <h5>
+            ما الجديد منذ آخر تحديث
+            {renderSectionDelta(Boolean(assessment.sectionDelta?.summary))}
+          </h5>
+          <p>{displayText(assessment.whatsNew) || "لا يوجد تحديث واضح."}</p>
+        </div>
+
+        <div className="ai-assessment-group">
+          <h5>
+            التحليل السياسي المختص
+            {renderSectionDelta(Boolean(assessment.sectionDelta?.political))}
+          </h5>
+          <ul>
+            {(assessment.politicalReading || []).slice(0, execMode ? 2 : 3).map((line, index) => (
+              <li key={`${prefix}-political-${index}`}>{displayText(line)}</li>
+            ))}
+            <li>{displayText(assessment.whyItMatters)}</li>
+          </ul>
+        </div>
+
+        {assessment.uaeImpactRows?.length ? (
+          <div className="ai-assessment-group">
+            <h5>
+              أثر الخبر على الإمارات
+              {renderSectionDelta(Boolean(assessment.sectionDelta?.impact))}
+            </h5>
+            <ul>
+              {assessment.uaeImpactRows.slice(0, execMode ? 3 : 5).map((item, index) => (
+                <li key={`${prefix}-uae-impact-${index}`}>
+                  <strong>{displayText(item.axis)}:</strong> {item.score}% ({impactLevelLabel(item.score)})
+                  {!execMode && item.why ? <small className="ai-assessment-source">{displayText(item.why)}</small> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {assessment.gulfImpactRows?.length ? (
+          <div className="ai-assessment-group">
+            <h5>أثر الخبر على الخليج</h5>
+            <ul>
+              {assessment.gulfImpactRows.slice(0, execMode ? 2 : 3).map((item, index) => (
+                <li key={`${prefix}-gulf-impact-${index}`}>
+                  <strong>{displayText(item.axis)}:</strong> {item.score}% ({impactLevelLabel(item.score)})
+                  {!execMode && item.why ? <small className="ai-assessment-source">{displayText(item.why)}</small> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <div className="ai-assessment-group">
+          <h5>
+            القرار الموصى وخطة التنفيذ
+            {renderSectionDelta(Boolean(assessment.sectionDelta?.decision))}
+          </h5>
+          <ul>
+            {(assessment.decisionOptions || [])
+              .filter((option) => option.id === assessment.recommendedDecisionId)
+              .slice(0, 1)
+              .map((option) => (
+                <li key={`${prefix}-recommended-option`}>
+                  <strong>
+                    {option.id}) {displayText(option.title)} (موصى به)
+                  </strong>
+                  <small className="ai-assessment-source">{displayText(option.detail)}</small>
+                </li>
+              ))}
+            <li>
+              <strong>الآن (0-2 ساعة):</strong> {displayText(assessment.actionNow)}
+            </li>
+            {!execMode ? (
+              <>
+                <li>
+                  <strong>التالي (2-12 ساعة):</strong> {displayText(assessment.actionNext)}
+                </li>
+                <li>
+                  <strong>متابعة (12-24 ساعة):</strong> {displayText(assessment.actionFollow)}
+                </li>
+              </>
+            ) : null}
+          </ul>
+        </div>
+
+        <div className="ai-assessment-group">
+          <h5>تكلفة عدم الإجراء</h5>
+          <ul>
+            {assessment.noActionCost?.in6h ? (
+              <li>
+                <strong>خلال 6 ساعات:</strong> {displayText(assessment.noActionCost.in6h)}
+              </li>
+            ) : null}
+            {assessment.noActionCost?.in24h ? (
+              <li>
+                <strong>خلال 24 ساعة:</strong> {displayText(assessment.noActionCost.in24h)}
+              </li>
+            ) : null}
+          </ul>
+        </div>
+
+        <div className="ai-assessment-group">
+          <h5>
+            ما الذي يغيّر التقييم
+            {renderSectionDelta(Boolean(assessment.sectionDelta?.triggers))}
+          </h5>
+          <ul>
+            {[...(assessment.triggers || []), ...(assessment.thresholds || [])].slice(0, execMode ? 3 : 6).map((item, index) => (
+              <li key={`${prefix}-trigger-threshold-${index}`}>{displayText(item)}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="ai-assessment-group">
+          <h5>
+            مستوى الثقة ولماذا
+            {renderSectionDelta(Boolean(assessment.sectionDelta?.confidence))}
+          </h5>
+          <ul>
+            {(assessment.confidenceReasons || []).slice(0, execMode ? 2 : 4).map((item, index) => (
+              <li key={`${prefix}-confidence-reason-${index}`}>{displayText(item)}</li>
+            ))}
+          </ul>
+        </div>
+
+        {!execMode ? (
+          <>
+            <details className="ai-assessment-collapse">
+              <summary>
+                متجه الأثر الحالي
+                {renderSectionDelta(Boolean(assessment.sectionDelta?.impact))}
+              </summary>
+              {assessment.impactVector?.length ? (
+                <ul>
+                  {assessment.impactVector.map((item, index) => (
+                    <li key={`${prefix}-impact-vector-${index}`}>
+                      <strong>{displayText(item.label)}:</strong> {item.value}%
+                      {item.note ? <small className="ai-assessment-source">{displayText(item.note)}</small> : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>لا توجد مؤشرات متجه إضافية.</p>
+              )}
+            </details>
+
+            <details className="ai-assessment-collapse">
+              <summary>
+                الأدلة المختصرة
+                {renderSectionDelta(Boolean(assessment.sectionDelta?.evidence))}
+              </summary>
+              {assessment.evidenceRows?.length ? (
+                <ul>
+                  {assessment.evidenceRows.map((item, index) => (
+                    <li key={`${prefix}-evidence-${index}`}>
+                      <div>{displayText(item.text)}</div>
+                      {item.source ? <small className="ai-assessment-source">المصدر المرجعي: {displayText(item.source)}</small> : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>لا توجد أدلة إضافية.</p>
+              )}
+            </details>
+
+            {assessment.contradictions?.length ? (
+              <details className="ai-assessment-collapse">
+                <summary>فجوات أو تعارضات تحتاج متابعة</summary>
+                <ul>
+                  {assessment.contradictions.map((item, index) => (
+                    <li key={`${prefix}-contradictions-${index}`}>{displayText(item)}</li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+    );
+  };
 
   const stats = useMemo(
     () => ({
@@ -4263,7 +5017,7 @@ export default function App() {
   }, [v2ShipDisplayItems]);
 
   useEffect(() => {
-    if (!v2SectionOpen.opsBoard) return;
+    if (!v2SectionOpen.opsBoard || v2OpsMapPoints.length === 0) return;
     const container = v2OpsMapContainerRef.current;
     if (!container || v2OpsLeafletMapRef.current) return;
     const map = L.map(container, {
@@ -4282,13 +5036,15 @@ export default function App() {
     const layer = L.layerGroup().addTo(map);
     v2OpsLeafletMapRef.current = map;
     v2OpsLeafletLayerRef.current = layer;
+    // Ensure first paint after dynamic mount is correctly sized.
+    setTimeout(() => map.invalidateSize(), 0);
     return () => {
       layer.clearLayers();
       map.remove();
       v2OpsLeafletLayerRef.current = null;
       v2OpsLeafletMapRef.current = null;
     };
-  }, [v2SectionOpen.opsBoard]);
+  }, [v2SectionOpen.opsBoard, v2OpsMapPoints.length]);
 
   useEffect(() => {
     const map = v2OpsLeafletMapRef.current;
@@ -4434,6 +5190,39 @@ export default function App() {
       }),
     [activePredictionWorkspace, selectedPredictionTicket, selectedPredictionEvidence]
   );
+  const predictionOperationalCards = useMemo(() => {
+    if (!selectedPredictionTicket) return [];
+    return operationalSectionDefs.map((section) => {
+      const baseRaw = selectedPredictionSections[section.key];
+      const raw =
+        section.key === "DAMAGES_LOSSES"
+          ? enrichDamagesLossesSection(baseRaw, activePredictionWorkspace, activeWorkspaceFatalityStats)
+          : section.key === "MITIGATION"
+          ? selectedMitigationContent
+          : baseRaw;
+      const safeRaw = sanitizePredictionBoxContent(raw);
+      const bullets = toBulletLines(displayText(safeRaw));
+      const preview = bullets.slice(0, 2).join(" - ");
+      const content = bullets.length > 0 ? bullets.map((line) => `• ${line}`).join("\n") : "غير متوفر بعد في هذه التذكرة.";
+      return {
+        key: section.key,
+        title: section.title,
+        preview,
+        content,
+      };
+    });
+  }, [
+    selectedPredictionTicket,
+    selectedPredictionSections,
+    activePredictionWorkspace,
+    activeWorkspaceFatalityStats,
+    selectedMitigationContent,
+  ]);
+  const predictionExecSectionKeys = useMemo(() => new Set(["CURRENT_BASELINE", "DAMAGES_LOSSES", "MITIGATION", "SHORT_TERM_PREDICTION"]), []);
+  const predictionVisibleCards = useMemo(() => {
+    if (predictionViewMode !== "exec") return predictionOperationalCards;
+    return predictionOperationalCards.filter((card) => predictionExecSectionKeys.has(card.key));
+  }, [predictionViewMode, predictionOperationalCards, predictionExecSectionKeys]);
 
   const activeVideoSource = useMemo(
     () => skyVideoSources.find((row) => row.id === selectedVideoSourceId) || skyVideoSources[0],
@@ -5797,69 +6586,26 @@ export default function App() {
                       <p>{displayText(sanitizeEventDetailText(activeEvent.summary || activeEvent.details)) || "لا يوجد ملخص."}</p>
                     </article>
                     <article className="detail-block">
-                      <h4>تقييم الذكاء</h4>
-                      <div className="ai-assessment-view">
-                        <div className="ai-assessment-kpis">
-                          <span className="fact-pill">
-                            <strong>الحكم:</strong> {activeAiAssessment.verdict}
-                          </span>
-                          <span className="fact-pill">
-                            <strong>الثقة:</strong> {activeAiAssessment.confidence}% ({activeAiAssessment.confidenceLabel})
-                          </span>
+                      <div className="ai-assessment-head">
+                        <h4>تقييم الذكاء</h4>
+                        <div className="quick-topics ai-assessment-mode-switch">
+                          <button
+                            className={`btn btn-small ${aiViewMode === "exec" ? "active" : ""}`}
+                            type="button"
+                            onClick={() => setAiViewMode("exec")}
+                          >
+                            عرض تنفيذي
+                          </button>
+                          <button
+                            className={`btn btn-small ${aiViewMode === "analysis" ? "active" : ""}`}
+                            type="button"
+                            onClick={() => setAiViewMode("analysis")}
+                          >
+                            عرض تحليلي
+                          </button>
                         </div>
-                        <p>{displayText(activeAiAssessment.operationalSummary) || "لا يوجد تقييم إضافي."}</p>
-                        {activeAiAssessment.actions.length > 0 ? (
-                          <div className="ai-assessment-group">
-                            <h5>اقتراحات الذكاء</h5>
-                            <ul>
-                              {activeAiAssessment.actions.map((item, index) => (
-                                <li key={`active-ai-action-${index}`}>{displayText(item)}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
-                        {activeAiAssessment.impact ? (
-                          <div className="ai-assessment-group">
-                            <h5>أثر الخبر على الوضع (إيجابي/سلبي)</h5>
-                            <ul>
-                              <li><strong>قراءة مختصرة:</strong> {displayText(activeAiAssessment.impact.brief)}</li>
-                              <li><strong>الفائدة المحتملة:</strong> {displayText(activeAiAssessment.impact.potentialBenefit)}</li>
-                              <li><strong>الأثر السلبي المحتمل:</strong> {displayText(activeAiAssessment.impact.potentialRisk)}</li>
-                              <li><strong>المحصلة:</strong> {displayText(activeAiAssessment.impact.netImpact)}</li>
-                            </ul>
-                          </div>
-                        ) : null}
-                        {activeAiAssessment.evidence.length > 0 ? (
-                          <div className="ai-assessment-group">
-                            <h5>أهم الأدلة المختصرة</h5>
-                            <ul>
-                              {activeAiAssessment.evidence.map((item, index) => (
-                                <li key={`active-ai-evidence-${index}`}>{displayText(item)}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
-                        {activeAiAssessment.triggers.length > 0 ? (
-                          <div className="ai-assessment-group">
-                            <h5>مؤشرات رفع المستوى</h5>
-                            <ul>
-                              {activeAiAssessment.triggers.map((item, index) => (
-                                <li key={`active-ai-trigger-${index}`}>{displayText(item)}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
-                        {activeAiAssessment.missingInfo.length > 0 ? (
-                          <div className="ai-assessment-group">
-                            <h5>بيانات ناقصة لتحسين الدقة</h5>
-                            <ul>
-                              {activeAiAssessment.missingInfo.map((item, index) => (
-                                <li key={`active-ai-missing-${index}`}>{displayText(item)}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
                       </div>
+                      {renderAiAssessmentBlocks(activeAiAssessment, "active")}
                     </article>
                     <article className="detail-block">
                       <h4>تفاصيل إضافية</h4>
@@ -5975,7 +6721,7 @@ export default function App() {
                               onClick={() =>
                                 setContentModal({
                                   title: msg.role === "user" ? "سؤالك" : "رد المساعد",
-                                  content: msg.content,
+                                  content: displayText(msg.content),
                                   createdAt: msg.created_at
                                 })
                               }
@@ -5992,7 +6738,7 @@ export default function App() {
                             </button>
                           </div>
                         </div>
-                        <p>{msg.content}</p>
+                        <p>{displayText(msg.content)}</p>
                         <small>{formatTime(msg.created_at)}</small>
                       </article>
                     ))}
@@ -6796,6 +7542,24 @@ export default function App() {
                   {selectedPredictionTicket ? (
                     <>
                       <h4>{displayText(selectedPredictionTicket.title)}</h4>
+                      <div className="ai-assessment-head">
+                        <div className="quick-topics ai-assessment-mode-switch">
+                          <button
+                            className={`btn btn-small ${predictionViewMode === "exec" ? "active" : ""}`}
+                            type="button"
+                            onClick={() => setPredictionViewMode("exec")}
+                          >
+                            عرض تنفيذي
+                          </button>
+                          <button
+                            className={`btn btn-small ${predictionViewMode === "analysis" ? "active" : ""}`}
+                            type="button"
+                            onClick={() => setPredictionViewMode("analysis")}
+                          >
+                            عرض تحليلي
+                          </button>
+                        </div>
+                      </div>
                       <p className="details-meta">
                         الدرجة: {predictionScorePercent(selectedPredictionTicket.confidence)}% | الأفق: {selectedPredictionTicket.horizon_hours}h |
                         الحالة: {predictionStatusLabel(selectedPredictionTicket.status)} | النتيجة: {predictionOutcomeLabel(selectedPredictionTicket.outcome)}
@@ -6817,21 +7581,14 @@ export default function App() {
                         }
                       >
                         <h4>التحليل التخصصي (حالي + تنبئي)</h4>
-                        <p>{toBulletLines(displayText(sanitizePredictionBoxContent(selectedSpecialistAnalysisContent))).slice(0, 2).join(" - ") || "غير متوفر."}</p>
+                        <p>
+                          {toBulletLines(displayText(sanitizePredictionBoxContent(selectedSpecialistAnalysisContent)))
+                            .slice(0, predictionViewMode === "exec" ? 2 : 3)
+                            .join(" - ") || "غير متوفر."}
+                        </p>
                       </button>
                       <div className="v2-operational-grid">
-                        {operationalSectionDefs.map((section) => {
-                          const baseRaw = selectedPredictionSections[section.key];
-                          const raw =
-                            section.key === "DAMAGES_LOSSES"
-                              ? enrichDamagesLossesSection(baseRaw, activePredictionWorkspace, activeWorkspaceFatalityStats)
-                              : section.key === "MITIGATION"
-                              ? selectedMitigationContent
-                              : baseRaw;
-                          const safeRaw = sanitizePredictionBoxContent(raw);
-                          const bullets = toBulletLines(displayText(safeRaw));
-                          const preview = bullets.slice(0, 2).join(" - ");
-                          const content = bullets.length > 0 ? bullets.map((line) => `• ${line}`).join("\n") : "غير متوفر بعد في هذه التذكرة.";
+                        {predictionVisibleCards.map((section) => {
                           return (
                             <button
                               key={section.key}
@@ -6840,31 +7597,23 @@ export default function App() {
                               onClick={() =>
                                 setContentModal({
                                   title: section.title,
-                                  content,
+                                  content: section.content,
                                   createdAt: selectedPredictionTicket?.updated_at || selectedPredictionTicket?.created_at || null,
                                 })
                               }
                             >
                               <h4>{section.title}</h4>
-                              <p>{preview || "غير متوفر بعد في هذه التذكرة."}</p>
+                              <p>{section.preview || "غير متوفر بعد في هذه التذكرة."}</p>
                             </button>
                           );
                         })}
                       </div>
-                      <button
-                        type="button"
-                        className="detail-block v2-click-block"
-                        onClick={() =>
-                          setContentModal({
-                            title: "النص الكامل (منسق بالعربية)",
-                            content: displayText(sanitizePredictionBoxContent(cleanOperationalTaggedText(selectedPredictionTicket.prediction_text))),
-                            createdAt: selectedPredictionTicket?.updated_at || selectedPredictionTicket?.created_at || null,
-                          })
-                        }
-                      >
-                        <h4>النص الكامل (منسق بالعربية)</h4>
-                        <p>{displayText(sanitizePredictionBoxContent(cleanOperationalTaggedText(selectedPredictionTicket.prediction_text)))}</p>
-                      </button>
+                      {predictionViewMode === "analysis" ? (
+                        <details className="ai-assessment-collapse">
+                          <summary>النص الكامل (منسق بالعربية)</summary>
+                          <p>{displayText(sanitizePredictionBoxContent(cleanOperationalTaggedText(selectedPredictionTicket.prediction_text)))}</p>
+                        </details>
+                      ) : null}
                       <label>
                         تحديث/ملاحظة
                         <textarea value={predictionNote} onChange={(event) => setPredictionNote(event.target.value)} rows={2} />
@@ -6935,7 +7684,7 @@ export default function App() {
                 <div className="v2-leaderboard-list">
                   {predictionLeaderboard.map((row) => (
                     <article key={`${row.model}-${row.window_hours}`} className="detail-block v2-leaderboard-item">
-                      <h5>{predictionWindowLabel(row)}</h5>
+                      <h5>{displayText(predictionWindowLabel(row))}</h5>
                       <p>
                         الدقة: {Math.round((Number(row.accuracy || 0) * 10000) / 100)}%
                       </p>
@@ -7011,72 +7760,7 @@ export default function App() {
               </article>
               <article className="detail-block">
                 <h4>تقييم الذكاء</h4>
-                <div className="ai-assessment-view">
-                  <div className="ai-assessment-kpis">
-                    <span className="fact-pill">
-                      <strong>الحكم:</strong> {popupAiAssessment.verdict}
-                    </span>
-                    <span className="fact-pill">
-                      <strong>الثقة:</strong> {popupAiAssessment.confidence}% ({popupAiAssessment.confidenceLabel})
-                    </span>
-                  </div>
-                  <p>{displayText(popupAiAssessment.operationalSummary) || "لا يوجد تقييم إضافي."}</p>
-                  {popupAiAssessment.actions.length > 0 ? (
-                    <div className="ai-assessment-group">
-                      <h5>اقتراحات الذكاء</h5>
-                      <ul>
-                        {popupAiAssessment.actions.map((item, index) => (
-                          <li key={`popup-ai-action-${index}`}>{displayText(item)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                  {popupAiAssessment.impact ? (
-                    <div className="ai-assessment-group">
-                      <h5>أثر الخبر على الوضع (إيجابي/سلبي)</h5>
-                      <ul>
-                        <li><strong>قراءة مختصرة:</strong> {displayText(popupAiAssessment.impact.brief)}</li>
-                        <li><strong>الفائدة المحتملة:</strong> {displayText(popupAiAssessment.impact.potentialBenefit)}</li>
-                        <li><strong>الأثر السلبي المحتمل:</strong> {displayText(popupAiAssessment.impact.potentialRisk)}</li>
-                        <li><strong>المحصلة:</strong> {displayText(popupAiAssessment.impact.netImpact)}</li>
-                      </ul>
-                    </div>
-                  ) : null}
-                  {popupAiAssessment.evidence.length > 0 ? (
-                    <div className="ai-assessment-group">
-                      <h5>أهم الأدلة المختصرة</h5>
-                      <ul>
-                        {popupAiAssessment.evidence.map((item, index) => (
-                          <li key={`popup-ai-evidence-${index}`}>{displayText(item)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                  {popupAiAssessment.triggers.length > 0 ? (
-                    <div className="ai-assessment-group">
-                      <h5>مؤشرات رفع المستوى</h5>
-                      <ul>
-                        {popupAiAssessment.triggers.map((item, index) => (
-                          <li key={`popup-ai-trigger-${index}`}>{displayText(item)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                  {popupAiAssessment.missingInfo.length > 0 ? (
-                    <div className="ai-assessment-group">
-                      <h5>بيانات ناقصة لتحسين الدقة</h5>
-                      <ul>
-                        {popupAiAssessment.missingInfo.map((item, index) => (
-                          <li key={`popup-ai-missing-${index}`}>{displayText(item)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-              </article>
-              <article className="detail-block">
-                <h4>تفاصيل إضافية</h4>
-                <p>{displayText(sanitizeEventDetailText(summarizeSourceDetails(popupEvent))) || "لا توجد تفاصيل إضافية."}</p>
+                {renderAiAssessmentBlocks(popupAiAssessment, "popup", "exec")}
               </article>
             </div>
             <div className="facts-grid">

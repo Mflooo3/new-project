@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 import time
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
@@ -55,33 +56,93 @@ public_router = APIRouter()
 router = APIRouter(dependencies=[Depends(require_api_key)])
 _jsoncargo_status_cache: dict[str, Any] = {"checked_monotonic": 0.0, "payload": None}
 
+_MOJIBAKE_MARKERS_RE = re.compile(r"(?:Ã.|Ø.|Ù.|Â.|â[€™œž¢£¤])")
+_ARABIC_RE = re.compile(r"[\u0600-\u06FF]")
+
+
+def _repair_mojibake_text(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    text = value
+    if not text:
+        return text
+
+    def _metrics(s: str) -> tuple[int, int, int]:
+        arabic_hits = len(_ARABIC_RE.findall(s))
+        mojibake_hits = len(_MOJIBAKE_MARKERS_RE.findall(s)) + s.count("\ufffd")
+        return arabic_hits, mojibake_hits, len(s)
+
+    def _repair_line(line: str) -> str:
+        if not line or not _MOJIBAKE_MARKERS_RE.search(line):
+            return line
+        candidates = [line]
+        for enc in ("latin-1", "cp1252"):
+            try:
+                decoded = line.encode(enc, errors="ignore").decode("utf-8", errors="ignore")
+                if decoded and decoded not in candidates:
+                    candidates.append(decoded)
+                if _MOJIBAKE_MARKERS_RE.search(decoded):
+                    decoded2 = decoded.encode(enc, errors="ignore").decode("utf-8", errors="ignore")
+                    if decoded2 and decoded2 not in candidates:
+                        candidates.append(decoded2)
+            except Exception:
+                continue
+
+        origin_ar, origin_mj, _ = _metrics(line)
+        ranked = [(candidate, *_metrics(candidate)) for candidate in candidates]
+        # Prefer less mojibake first, then more Arabic content.
+        best, best_ar, best_mj, _ = min(ranked, key=lambda row: (row[2], -row[1], -row[3]))
+        if best_mj < origin_mj and (best_ar >= max(1, origin_ar // 3) or best_ar > origin_ar):
+            return best
+        return line
+
+    parts = re.split(r"(\r?\n)", text)
+    fixed_parts = [_repair_line(part) if part not in {"\n", "\r\n"} else part for part in parts]
+    return "".join(fixed_parts)
+
+
+def _normalize_text_payload(value: Any) -> Any:
+    if isinstance(value, str):
+        return _repair_mojibake_text(value)
+    if isinstance(value, list):
+        return [_normalize_text_payload(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _normalize_text_payload(item) for key, item in value.items()}
+    return value
+
+
+def _normalize_model_text(model: Any) -> Any:
+    data = model.model_dump()
+    fixed = _normalize_text_payload(data)
+    return model.__class__.model_validate(fixed)
+
 
 def _as_source_read(source: Source) -> SourceRead:
-    return SourceRead.model_validate(source, from_attributes=True)
+    return _normalize_model_text(SourceRead.model_validate(source, from_attributes=True))
 
 
 def _as_event_read(event: Event) -> EventRead:
-    return EventRead.model_validate(event, from_attributes=True)
+    return _normalize_model_text(EventRead.model_validate(event, from_attributes=True))
 
 
 def _as_alert_read(alert: Alert) -> AlertRead:
-    return AlertRead.model_validate(alert, from_attributes=True)
+    return _normalize_model_text(AlertRead.model_validate(alert, from_attributes=True))
 
 
 def _as_ai_message_read(message: AIChatMessage) -> AIChatMessageRead:
-    return AIChatMessageRead.model_validate(message, from_attributes=True)
+    return _normalize_model_text(AIChatMessageRead.model_validate(message, from_attributes=True))
 
 
 def _as_ai_insight_read(insight: AIInsight) -> AIInsightRead:
-    return AIInsightRead.model_validate(insight, from_attributes=True)
+    return _normalize_model_text(AIInsightRead.model_validate(insight, from_attributes=True))
 
 
 def _as_prediction_ticket_read(ticket: AIPredictionTicket) -> AIPredictionTicketRead:
-    return AIPredictionTicketRead.model_validate(ticket, from_attributes=True)
+    return _normalize_model_text(AIPredictionTicketRead.model_validate(ticket, from_attributes=True))
 
 
 def _as_prediction_update_read(update: AIPredictionUpdate) -> AIPredictionUpdateRead:
-    return AIPredictionUpdateRead.model_validate(update, from_attributes=True)
+    return _normalize_model_text(AIPredictionUpdateRead.model_validate(update, from_attributes=True))
 
 
 def _normalize_endpoint(endpoint: str | None) -> str:
@@ -344,7 +405,9 @@ def ai_privacy() -> AIPrivacyRead:
 @router.get("/ai/status", response_model=AIStatusRead)
 def ai_status(session: Session = Depends(get_session)) -> AIStatusRead:
     service = AIWorkspaceService(session=session)
-    return AIStatusRead(**service.openai_status())
+    status = service.openai_status()
+    status["message"] = _repair_mojibake_text(status.get("message", "")) or ""
+    return AIStatusRead(**status)
 
 
 @router.get("/ai/messages", response_model=list[AIChatMessageRead])
@@ -429,7 +492,7 @@ def ai_predictions(
 def ai_prediction_leaderboard(session: Session = Depends(get_session)) -> list[AIPredictionLeaderboardRow]:
     service = AIWorkspaceService(session=session)
     rows = service.get_prediction_leaderboard()
-    return [AIPredictionLeaderboardRow(**row) for row in rows]
+    return [_normalize_model_text(AIPredictionLeaderboardRow(**row)) for row in rows]
 
 
 @router.get("/ai/predictions/review-config", response_model=AIPredictionReviewConfigRead)
@@ -577,7 +640,7 @@ def ai_reports(
 ) -> list[AIReportRead]:
     service = AIWorkspaceService(session=session)
     rows = service.list_reports(limit=limit)
-    return [AIReportRead(**row) for row in rows]
+    return [_normalize_model_text(AIReportRead(**row)) for row in rows]
 
 
 @router.get("/ai/reports/{report_id}/download")
@@ -609,11 +672,11 @@ def ai_publish_report(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return AIReportRead(**row)
+    return _normalize_model_text(AIReportRead(**row))
 
 
 @router.post("/ai/translate/bulk", response_model=AITranslateBulkResponse)
 def ai_translate_bulk(payload: AITranslateBulkRequest, session: Session = Depends(get_session)) -> AITranslateBulkResponse:
     service = AIWorkspaceService(session=session)
     translations = service.translate_bulk_to_arabic(payload.texts)
-    return AITranslateBulkResponse(translations=translations)
+    return AITranslateBulkResponse(translations=_normalize_text_payload(translations))
