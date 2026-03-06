@@ -189,6 +189,40 @@ h3 {
   margin-top: 12px;
 }
 
+.command-toolbar {
+  margin-top: 12px;
+  background: linear-gradient(135deg, rgba(6, 34, 50, 0.88), rgba(6, 45, 66, 0.76));
+  border-color: rgba(132, 201, 226, 0.34);
+}
+
+.command-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.command-group {
+  border: 1px solid rgba(132, 201, 226, 0.25);
+  border-radius: 12px;
+  padding: 8px;
+  background: rgba(4, 27, 41, 0.46);
+}
+
+.command-group .quick-topics {
+  margin-top: 6px;
+}
+
+.command-label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+}
+
+.advanced-filters {
+  animation: slideDown 0.2s ease-out;
+}
+
 .filter-grid {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1fr 1.2fr 1fr 0.9fr 0.9fr;
@@ -250,17 +284,23 @@ h3 {
   background: var(--panel-soft);
   border-radius: 12px;
   padding: 10px 12px;
+  min-height: 124px;
+  display: grid;
+  align-content: start;
 }
 
 .stat-card h3 {
   font-size: 0.9rem;
-  color: var(--muted);
+  color: #cbe2ee;
+  border-bottom: 1px solid rgba(132, 201, 226, 0.2);
+  padding-bottom: 4px;
 }
 
 .stat-card p {
   margin: 6px 0 0;
   font-size: 1.7rem;
   font-weight: 800;
+  line-height: 1.1;
 }
 
 .stat-card small {
@@ -269,6 +309,10 @@ h3 {
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.35;
+}
+
+.filter-foot-actions {
+  justify-content: flex-start;
 }
 
 .panel {
@@ -772,6 +816,10 @@ textarea {
 }
 
 @media (max-width: 1200px) {
+  .command-groups {
+    grid-template-columns: 1fr;
+  }
+
   .filter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -798,6 +846,10 @@ textarea {
 
   .stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .command-group {
+    padding: 8px 7px;
   }
 }
 
@@ -1983,6 +2035,23 @@ textarea {
 
 .v2-head {
   background: linear-gradient(140deg, rgba(7, 36, 52, 0.92), rgba(11, 56, 80, 0.76));
+}
+
+.v2-action-groups {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.v2-action-group {
+  border: 1px solid rgba(132, 201, 226, 0.24);
+  border-radius: 10px;
+  background: rgba(4, 27, 41, 0.4);
+  padding: 7px 8px;
+}
+
+.v2-action-group .quick-topics {
+  margin-top: 5px;
 }
 
 .v2-lanes {

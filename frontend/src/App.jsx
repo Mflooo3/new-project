@@ -3416,6 +3416,7 @@ export default function App() {
   const [newsWindowHours, setNewsWindowHours] = useState(String(DEFAULT_NEWS_WINDOW_HOURS));
 
   const [sourceDrawerOpen, setSourceDrawerOpen] = useState(false);
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const [sourcePage, setSourcePage] = useState(1);
   const [sourceForm, setSourceForm] = useState(initialSourceForm);
 
@@ -3428,7 +3429,7 @@ export default function App() {
   const [selectedAlertIds, setSelectedAlertIds] = useState([]);
   const [selectedVideoSourceId, setSelectedVideoSourceId] = useState(skyVideoSources[0]?.id || "");
   const [videoEmbedIndexBySource, setVideoEmbedIndexBySource] = useState({});
-  const [versionTab, setVersionTab] = useState("v2");
+  const [versionTab, setVersionTab] = useState("v1");
   const [aiTab, setAiTab] = useState("chat");
   const [aiViewMode, setAiViewMode] = useState("exec");
   const [predictionViewMode, setPredictionViewMode] = useState("exec");
@@ -6033,6 +6034,59 @@ export default function App() {
         <>
       {error ? <div className="error-banner">{error}</div> : null}
 
+      <section className="panel command-toolbar">
+        <div className="command-groups">
+          <div className="command-group">
+            <small className="command-label">الإجراءات السريعة</small>
+            <div className="quick-topics">
+              <button className="btn btn-accent" type="button" onClick={triggerIngestion}>
+                تحديث فوري
+              </button>
+              <button className="btn btn-accent" type="button" onClick={analyzeCurrentResults} disabled={submittingInsight}>
+                {submittingInsight ? "جارٍ التحليل..." : analysisSelectionCount > 0 ? `تحليل ذكي (${analysisSelectionCount})` : "تحليل ذكي (عام)"}
+              </button>
+              <button className="btn btn-ghost" type="button" onClick={publishFromCurrentFilter} disabled={publishingReport}>
+                نشر تقرير
+              </button>
+            </div>
+          </div>
+          <div className="command-group">
+            <small className="command-label">العرض والتنظيم</small>
+            <div className="quick-topics">
+              <button className="btn btn-ghost" type="button" onClick={() => setAdvancedFiltersOpen((prev) => !prev)}>
+                {advancedFiltersOpen ? "إخفاء الفلاتر المتقدمة" : "إظهار الفلاتر المتقدمة"}
+              </button>
+              <button className="btn btn-ghost" type="button" onClick={() => setSourceDrawerOpen((prev) => !prev)}>
+                {sourceDrawerOpen ? "إخفاء المصادر" : "المصادر والربط"}
+              </button>
+              <button className="btn btn-small" type="button" onClick={() => setVersionTab("v2")}>
+                الانتقال إلى خلية الذكاء الاصطناعي
+              </button>
+            </div>
+          </div>
+          <div className="command-group">
+            <small className="command-label">تركيز سريع</small>
+            <div className="quick-topics">
+              <button className="btn btn-small" type="button" onClick={() => setQuery("حرب")}>
+                تركيز الحرب
+              </button>
+              <button className="btn btn-small" type="button" onClick={() => setQuery("cyber")}>
+                تركيز سيبراني
+              </button>
+              <button className="btn btn-small" type="button" onClick={() => setQuery("flight")}>
+                تركيز طيران
+              </button>
+              <button className="btn btn-small" type="button" onClick={() => setQuery("marine")}>
+                تركيز ملاحي
+              </button>
+              <button className="btn btn-small" type="button" onClick={() => setQuery("")}>
+                مسح
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
         <section className="broadcast-scene">
           <article className="panel live-video-panel">
             <div className="video-wall">
@@ -6079,7 +6133,8 @@ export default function App() {
 
       </section>
 
-      <section className="filter-strip panel">
+      {advancedFiltersOpen ? (
+      <section className="filter-strip panel advanced-filters">
         <div className="filter-grid">
           <label>
             بحث موضوعي
@@ -6141,39 +6196,30 @@ export default function App() {
             </select>
           </label>
         </div>
-        <div className="quick-topics">
-          <button className="btn btn-ghost" type="button" onClick={() => setSourceDrawerOpen((prev) => !prev)}>
-            {sourceDrawerOpen ? "إخفاء المصادر" : "المصادر والربط"}
-          </button>
-          <button className="btn btn-small" type="button" onClick={() => setQuery("حرب")}>
-            تركيز الحرب
-          </button>
-          <button className="btn btn-small" type="button" onClick={() => setQuery("cyber")}>
-            تركيز سيبراني
-          </button>
-          <button className="btn btn-small" type="button" onClick={() => setQuery("flight")}>
-            تركيز طيران
-          </button>
-          <button className="btn btn-small" type="button" onClick={() => setQuery("marine")}>
-            تركيز ملاحي
-          </button>
-          <button className="btn btn-small" type="button" onClick={() => setQuery("")}>
-            مسح
-          </button>
+        <div className="quick-topics filter-foot-actions">
           <button className="btn btn-small" type="button" onClick={() => setSelectedSourceNames([])}>
             كل المصادر
           </button>
-          <button className="btn btn-accent" type="button" onClick={analyzeCurrentResults} disabled={submittingInsight}>
-            {submittingInsight ? "جارٍ التحليل..." : analysisSelectionCount > 0 ? `تحليل ذكي (${analysisSelectionCount})` : "تحليل ذكي (عام)"}
+          <button
+            className="btn btn-small"
+            type="button"
+            onClick={() => {
+              setSourceFilter("all");
+              setSeverityFilter("all");
+              setSelectedSourceNames([]);
+              setTrustedOnly(true);
+              setIncludePeople(true);
+              setNewsWindowHours(String(DEFAULT_NEWS_WINDOW_HOURS));
+            }}
+          >
+            إعادة ضبط الفلاتر
           </button>
           <button className="btn btn-small btn-danger" type="button" onClick={clearInsights} disabled={clearingInsights}>
             {clearingInsights ? "جارٍ المسح..." : "مسح التحليل"}
           </button>
-          <button className="btn btn-ghost" type="button" onClick={publishFromCurrentFilter} disabled={publishingReport}>
-            نشر تقرير
-          </button>
         </div>
       </section>
+      ) : null}
 
       <section className="stat-grid">
         <article className="stat-card">
@@ -6868,25 +6914,40 @@ export default function App() {
               <h2>مركز العمليات السردي V2</h2>
               <span>عرض مباشر: ماذا حدث | لماذا مهم | ماذا نراقب تالياً</span>
             </div>
-            <div className="quick-topics">
-              <button className="btn btn-accent" type="button" onClick={triggerIngestion}>
-                تحديث فوري
-              </button>
-              <button className="btn btn-small" type="button" onClick={focusV2OpsBoard}>
-                لوحة الحركة الجديدة
-              </button>
-              <button className="btn btn-small" type="button" onClick={() => setVersionTab("v1")}>
-                العودة إلى V1
-              </button>
-              <button className={`btn btn-small ${v2TrustedOnly ? "active" : ""}`} type="button" onClick={() => setV2TrustedOnly((prev) => !prev)}>
-                {v2TrustedOnly ? "مصادر موثوقة فقط" : "كل المصادر"}
-              </button>
-              <button className={`btn btn-small ${v2UnreadOnly ? "active" : ""}`} type="button" onClick={() => setV2UnreadOnly((prev) => !prev)}>
-                {v2UnreadOnly ? "إظهار الكل" : "غير المقروء فقط"}
-              </button>
-              <button className="btn btn-small btn-accent" type="button" onClick={analyzeV2Selected} disabled={submittingInsight}>
-                {submittingInsight ? "جارٍ التحليل..." : `تحليل المحدد في V2 (${v2SelectedEventIds.length})`}
-              </button>
+            <div className="v2-action-groups">
+              <div className="v2-action-group">
+                <small className="command-label">تشغيل</small>
+                <div className="quick-topics">
+                  <button className="btn btn-accent" type="button" onClick={triggerIngestion}>
+                    تحديث فوري
+                  </button>
+                  <button className="btn btn-small" type="button" onClick={focusV2OpsBoard}>
+                    لوحة الحركة الجديدة
+                  </button>
+                  <button className="btn btn-small" type="button" onClick={() => setVersionTab("v1")}>
+                    العودة إلى V1
+                  </button>
+                </div>
+              </div>
+              <div className="v2-action-group">
+                <small className="command-label">تصفية</small>
+                <div className="quick-topics">
+                  <button className={`btn btn-small ${v2TrustedOnly ? "active" : ""}`} type="button" onClick={() => setV2TrustedOnly((prev) => !prev)}>
+                    {v2TrustedOnly ? "مصادر موثوقة فقط" : "كل المصادر"}
+                  </button>
+                  <button className={`btn btn-small ${v2UnreadOnly ? "active" : ""}`} type="button" onClick={() => setV2UnreadOnly((prev) => !prev)}>
+                    {v2UnreadOnly ? "إظهار الكل" : "غير المقروء فقط"}
+                  </button>
+                </div>
+              </div>
+              <div className="v2-action-group">
+                <small className="command-label">تحليل</small>
+                <div className="quick-topics">
+                  <button className="btn btn-small btn-accent" type="button" onClick={analyzeV2Selected} disabled={submittingInsight}>
+                    {submittingInsight ? "جارٍ التحليل..." : `تحليل المحدد في V2 (${v2SelectedEventIds.length})`}
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="v2-lanes">
               <button className={`btn btn-small lane-btn ${v2Lane === "all" ? "active" : ""}`} type="button" onClick={() => setV2Lane("all")}>
