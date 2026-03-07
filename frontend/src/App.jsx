@@ -493,7 +493,10 @@ const arabicPreferredNewsDomains = [
 
 const LIST_PAGE_SIZE = 3;
 const SOURCE_DRAWER_PAGE_SIZE = 5;
+const MAX_TICKET_EVENT_IDS = 220;
 const DEFAULT_NEWS_WINDOW_HOURS = Math.max(0, Number(import.meta.env.VITE_NEWS_MAX_AGE_HOURS || 24));
+const WAR_START_ISO = "2026-02-27T00:00:00Z";
+const WAR_START_DATE_MS = Date.parse(WAR_START_ISO);
 const predictionReviewIntervalOptions = [
   { value: 600, label: "كل 10 دقائق" },
   { value: 1800, label: "كل 30 دقيقة" },
@@ -555,8 +558,8 @@ const threatCountryDefs = [
 
 const UAE_COUNTRY_MARKERS = ["uae", "united arab emirates", "الإمارات", "الامارات", "emirates"];
 const UAE_IATA_AIRPORT_CODES = new Set(["AUH", "DXB", "DWC", "SHJ", "AAN", "RKT", "FJR", "XNB", "AZI", "OMAA", "OMDB"]);
-const THREAT_SIGNAL_MAX_VALUE = 1500;
-const THREAT_SIGNAL_MAX_DIGITS = 4;
+const THREAT_SIGNAL_MAX_VALUE = 20000;
+const THREAT_SIGNAL_MAX_DIGITS = 6;
 const ICAO_COUNTRY_PREFIX_MAP = {
   OM: "UAE",
   OE: "Saudi Arabia",
@@ -935,10 +938,85 @@ const EN_NUMBER_WORDS = {
   twelve: "12",
 };
 
+const AR_NUMBER_WORDS = {
+  "احد عشر": "11",
+  "أحد عشر": "11",
+  "إحدى عشرة": "11",
+  "احدى عشرة": "11",
+  "اثنا عشر": "12",
+  "اثني عشر": "12",
+  "إثنا عشر": "12",
+  "اثنتا عشرة": "12",
+  "واحد": "1",
+  "واحدة": "1",
+  "احد": "1",
+  "أحد": "1",
+  "اثنان": "2",
+  "اثنين": "2",
+  "إثنان": "2",
+  "إثنين": "2",
+  "اثنتان": "2",
+  "اثنتين": "2",
+  "ثلاث": "3",
+  "ثلاثة": "3",
+  "اربع": "4",
+  "أربع": "4",
+  "اربعة": "4",
+  "أربعة": "4",
+  "خمس": "5",
+  "خمسة": "5",
+  "ست": "6",
+  "ستة": "6",
+  "سبع": "7",
+  "سبعة": "7",
+  "ثمان": "8",
+  "ثماني": "8",
+  "ثمانية": "8",
+  "تسع": "9",
+  "تسعة": "9",
+  "عشر": "10",
+  "عشرة": "10",
+  "صفر": "0",
+};
+
 function normalizeDateInputValue(value) {
+  const ensureValidIsoDate = (candidate) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return "";
+    const parsed = parsePossiblyDate(`${candidate}T00:00:00Z`);
+    if (!parsed) return "";
+    const y = String(parsed.getUTCFullYear()).padStart(4, "0");
+    const m = String(parsed.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(parsed.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}` === candidate ? candidate : "";
+  };
+
   const raw = String(value || "").trim();
   if (!raw) return "";
-  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return ensureValidIsoDate(raw);
+  const dmy = raw.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
+  if (dmy) {
+    const day = dmy[1].padStart(2, "0");
+    const month = dmy[2].padStart(2, "0");
+    const year = dmy[3];
+    return ensureValidIsoDate(`${year}-${month}-${day}`);
+  }
+  const ymd = raw.match(/^(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})$/);
+  if (ymd) {
+    const year = ymd[1];
+    const month = ymd[2].padStart(2, "0");
+    const day = ymd[3].padStart(2, "0");
+    return ensureValidIsoDate(`${year}-${month}-${day}`);
+  }
+  return "";
+}
+
+function clampPredictionRequestText(value, maxLength = 3900) {
+  const text = cleanText(value);
+  if (!text) return "";
+  if (text.length <= maxLength) return text;
+  const suffix = "\n\n[تم تقليص نص التحليل تلقائياً ليتوافق مع حد الإدخال.]";
+  const head = text.slice(0, Math.max(0, maxLength - suffix.length)).trimEnd();
+  return `${head}${suffix}`;
 }
 
 function resolveAnalysisDateRange(workspace) {
@@ -996,6 +1074,11 @@ function normalizeNumericText(value) {
   let text = normalizeDigits(value).toLowerCase();
   for (const [word, numeric] of Object.entries(EN_NUMBER_WORDS)) {
     text = text.replace(new RegExp(`\\b${word}\\b`, "g"), numeric);
+  }
+  const sortedArabicWords = Object.keys(AR_NUMBER_WORDS).sort((a, b) => b.length - a.length);
+  for (const word of sortedArabicWords) {
+    const numeric = AR_NUMBER_WORDS[word];
+    text = text.replace(new RegExp(`(^|[\\s\\-_/،,:;()\\[\\]{}])${word}(?=$|[\\s\\-_/،,:;.!؟()\\[\\]{}])`, "giu"), `$1${numeric}`);
   }
   return text;
 }
@@ -1328,6 +1411,18 @@ function extractScopedSignalMax(text, markers, countPatterns, signalPattern, par
   return max;
 }
 
+function extractDirectSignalFromDetails(detailsMap, keys, parseOptions = {}) {
+  if (!detailsMap || !(detailsMap instanceof Map)) return null;
+  let max = null;
+  for (const key of keys) {
+    const raw = normalizeTransportValue(detailsMap.get(key));
+    if (!raw) continue;
+    const value = parseLocalizedInteger(raw, parseOptions);
+    if (value != null) max = max == null ? value : Math.max(max, value);
+  }
+  return max;
+}
+
 function hasScopedExplicitZero(text, markers, zeroPatterns) {
   const chunks = sentenceChunks(text);
   for (const chunk of chunks) {
@@ -1375,23 +1470,51 @@ function deriveFatalityStats(events, workspace) {
   const markers = buildCountryMarkers(workspace?.country);
   const perStoryFatalityMax = new Map();
   const perStoryInjuryMax = new Map();
+  const perStoryFatalityTrustedMax = new Map();
+  const perStoryInjuryTrustedMax = new Map();
   let explicitFatalityZero = false;
   let explicitInjuryZero = false;
   let scanned = 0;
+  let trustedScanned = 0;
   for (const row of events || []) {
     if (!eventInsideRange(row, range)) continue;
     const affinity = countryAffinity(row, markers);
     if (!affinity.any) continue;
     scanned += 1;
+    const trusted = isTrustedEvent(row);
+    if (trusted) trustedScanned += 1;
     const text = [row?.title, row?.summary, row?.details, row?.ai_assessment].filter(Boolean).join(" ");
     if (!text) continue;
     const storyKey = normalizeStoryTitle(row?.title) || `event-${row?.id || scanned}`;
+    const detailsMap = new Map(parseDetailsTokens(row?.details));
     const scopedFatality = extractScopedSignalMax(text, markers, FATALITY_COUNT_PATTERNS, FATALITY_SIGNAL_PATTERN);
     const scopedInjury = extractScopedSignalMax(text, markers, INJURY_COUNT_PATTERNS, INJURY_SIGNAL_PATTERN);
-    const fallbackFatality = affinity.strong || !markers.length ? extractSignalMaxFromText(text, FATALITY_COUNT_PATTERNS) : null;
-    const fallbackInjury = affinity.strong || !markers.length ? extractSignalMaxFromText(text, INJURY_COUNT_PATTERNS) : null;
-    const rowFatalityMax = scopedFatality ?? fallbackFatality;
-    const rowInjuryMax = scopedInjury ?? fallbackInjury;
+    const detailsFatality = extractDirectSignalFromDetails(detailsMap, [
+      "fatalities",
+      "deaths",
+      "killed",
+      "dead",
+      "casualties_fatalities",
+      "confirmed_deaths",
+    ]);
+    const detailsInjury = extractDirectSignalFromDetails(detailsMap, [
+      "injuries",
+      "injured",
+      "wounded",
+      "casualties_injured",
+      "confirmed_injuries",
+    ]);
+    const allowBroadFallback = !markers.length || (affinity.strong && row?.source_type !== "social");
+    const fallbackFatality = allowBroadFallback ? extractSignalMaxFromText(text, FATALITY_COUNT_PATTERNS) : null;
+    const fallbackInjury = allowBroadFallback ? extractSignalMaxFromText(text, INJURY_COUNT_PATTERNS) : null;
+    const rowFatalityMax = [scopedFatality, detailsFatality, fallbackFatality].reduce(
+      (max, value) => (value != null ? (max == null ? value : Math.max(max, value)) : max),
+      null
+    );
+    const rowInjuryMax = [scopedInjury, detailsInjury, fallbackInjury].reduce(
+      (max, value) => (value != null ? (max == null ? value : Math.max(max, value)) : max),
+      null
+    );
 
     if (
       hasScopedExplicitZero(text, markers, FATALITY_ZERO_PATTERNS) ||
@@ -1409,20 +1532,35 @@ function deriveFatalityStats(events, workspace) {
     if (rowFatalityMax != null) {
       const current = perStoryFatalityMax.get(storyKey) || 0;
       if (rowFatalityMax > current) perStoryFatalityMax.set(storyKey, rowFatalityMax);
+      if (trusted) {
+        const currentTrusted = perStoryFatalityTrustedMax.get(storyKey) || 0;
+        if (rowFatalityMax > currentTrusted) perStoryFatalityTrustedMax.set(storyKey, rowFatalityMax);
+      }
     }
     if (rowInjuryMax != null) {
       const current = perStoryInjuryMax.get(storyKey) || 0;
       if (rowInjuryMax > current) perStoryInjuryMax.set(storyKey, rowInjuryMax);
+      if (trusted) {
+        const currentTrusted = perStoryInjuryTrustedMax.get(storyKey) || 0;
+        if (rowInjuryMax > currentTrusted) perStoryInjuryTrustedMax.set(storyKey, rowInjuryMax);
+      }
     }
   }
-  const confirmed = perStoryFatalityMax.size > 0 ? Math.max(...perStoryFatalityMax.values()) : null;
-  const injured = perStoryInjuryMax.size > 0 ? Math.max(...perStoryInjuryMax.values()) : null;
+  const confirmedTrusted = perStoryFatalityTrustedMax.size > 0 ? Math.max(...perStoryFatalityTrustedMax.values()) : null;
+  const confirmedAny = perStoryFatalityMax.size > 0 ? Math.max(...perStoryFatalityMax.values()) : null;
+  const injuredTrusted = perStoryInjuryTrustedMax.size > 0 ? Math.max(...perStoryInjuryTrustedMax.values()) : null;
+  const injuredAny = perStoryInjuryMax.size > 0 ? Math.max(...perStoryInjuryMax.values()) : null;
+  const confirmed = confirmedTrusted ?? confirmedAny;
+  const injured = injuredTrusted ?? injuredAny;
   return {
     confirmed,
     injured,
+    confirmedSourceQuality: confirmedTrusted != null ? "trusted" : confirmedAny != null ? "mixed" : "none",
+    injuredSourceQuality: injuredTrusted != null ? "trusted" : injuredAny != null ? "mixed" : "none",
     explicitFatalityZero,
     explicitInjuryZero,
     scanned,
+    trustedScanned,
   };
 }
 
@@ -1430,24 +1568,63 @@ function buildFatalityAutoLine(workspace, fatalityStats) {
   const safeCountry = String(workspace?.country || "الدولة المستهدفة").trim() || "الدولة المستهدفة";
   const rangeLabel = analysisDateRangeLabel(workspace);
   if (fatalityStats?.confirmed != null) {
-    return `حصيلة الوفيات المؤكدة في ${safeCountry} ${rangeLabel}: ${fatalityStats.confirmed} (مستخرجة آلياً من المصادر).`;
+    return `حصيلة الوفيات المؤكدة في ${safeCountry} ${rangeLabel}: ${fatalityStats.confirmed}.`;
   }
   if (fatalityStats?.explicitFatalityZero) {
     return `لا توجد وفيات مؤكدة في ${safeCountry} ${rangeLabel} وفق المصادر المتاحة.`;
   }
-  return `حصيلة الوفيات المؤكدة في ${safeCountry} ${rangeLabel}: غير متاحة في المصادر الحالية.`;
+  return `حصيلة الوفيات المؤكدة في ${safeCountry} ${rangeLabel}: غير متاحة حالياً.`;
 }
 
 function buildInjuryAutoLine(workspace, fatalityStats) {
   const safeCountry = String(workspace?.country || "الدولة المستهدفة").trim() || "الدولة المستهدفة";
   const rangeLabel = analysisDateRangeLabel(workspace);
   if (fatalityStats?.injured != null) {
-    return `حصيلة الإصابات المؤكدة في ${safeCountry} ${rangeLabel}: ${fatalityStats.injured} (مستخرجة آلياً من المصادر).`;
+    return `حصيلة الإصابات المؤكدة في ${safeCountry} ${rangeLabel}: ${fatalityStats.injured}.`;
   }
   if (fatalityStats?.explicitInjuryZero) {
     return `لا توجد إصابات مؤكدة في ${safeCountry} ${rangeLabel} وفق المصادر المتاحة.`;
   }
   return `حصيلة الإصابات المؤكدة في ${safeCountry} ${rangeLabel}: غير متاحة في المصادر الحالية.`;
+}
+
+function buildFlightOpsSnapshotLine(rows, workspace) {
+  const range = resolveAnalysisDateRange(workspace);
+  const markers = buildCountryMarkers(workspace?.country);
+  const flights = (rows || [])
+    .filter((row) => row?.source_type === "flight" && eventInsideRange(row, range))
+    .filter((row) => rowMatchesCountryMarkersForOps(row, markers));
+  if (flights.length === 0) {
+    return "مؤشرات حركة الطيران المرتبطة بالدولة: لا توجد بيانات كافية ضمن نافذة التحليل.";
+  }
+  const touchesCountry = (value) => {
+    const text = cleanText(value).toLowerCase();
+    if (!text) return false;
+    return markers.some((marker) => marker && text.includes(marker));
+  };
+  let inbound = 0;
+  let outbound = 0;
+  let domestic = 0;
+  const routeCounts = new Map();
+  for (const row of flights) {
+    const t = parseTransportContext(row);
+    const fromCountry = normalizeTransportValue(t.fromCountry);
+    const toCountry = normalizeTransportValue(t.toCountry);
+    const fromMatch = touchesCountry(fromCountry);
+    const toMatch = touchesCountry(toCountry);
+    if (fromMatch && toMatch) domestic += 1;
+    else if (toMatch) inbound += 1;
+    else if (fromMatch) outbound += 1;
+    const routeKey = `${routeArrowSummary(fromCountry || t.fromPort, toCountry || t.toPort)}`;
+    routeCounts.set(routeKey, (routeCounts.get(routeKey) || 0) + 1);
+  }
+  const topRoutes = [...routeCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([route, count]) => `${route} (${count})`);
+  return `مؤشرات حركة الطيران المرتبطة بالدولة: إجمالي ${flights.length} | وارد ${inbound} | صادر ${outbound} | داخلي ${domestic}${
+    topRoutes.length ? ` | أبرز المسارات: ${topRoutes.join(" ، ")}` : ""
+  }.`;
 }
 
 function buildTransportIntelSummary(rows, workspace) {
@@ -1519,12 +1696,13 @@ function buildTransportIntelSummary(rows, workspace) {
   return lines.join("\n").slice(0, 2500);
 }
 
-function buildOperationalAnalysisTemplate({ focus, country, topic, userRequest, analysisDateFrom, fatalityStats, transportIntel }) {
+function buildOperationalAnalysisTemplate({ focus, country, topic, userRequest, analysisDateFrom, fatalityStats, transportIntel, flightOpsSnapshot }) {
   const safeFocus = String(focus || "").trim() || "تصعيد إقليمي";
   const safeCountry = String(country || "").trim() || "الدولة المحددة";
   const safeTopic = String(topic || "").trim() || safeFocus;
   const safeRequest = String(userRequest || "").trim() || "تحليل تشغيلي متكامل";
   const safeTransportIntel = String(transportIntel || "").trim();
+  const safeFlightOpsSnapshot = String(flightOpsSnapshot || "").trim();
   const scopeFrom = normalizeDateInputValue(analysisDateFrom);
   const fatalityLine = buildFatalityAutoLine({ country: safeCountry, analysisDateFrom }, fatalityStats);
   const injuryLine = buildInjuryAutoLine({ country: safeCountry, analysisDateFrom }, fatalityStats);
@@ -1554,8 +1732,9 @@ function buildOperationalAnalysisTemplate({ focus, country, topic, userRequest, 
     "2) معلومات لوجستية فعلية للدولة المستهدفة (المطارات/الموانئ/الطرق/سلاسل الإمداد/الطاقة) وتأثير الحدث عليها.",
     "3) الأضرار والخسائر: بشرية/مادية/تشغيلية مع تمييز المؤكد من غير المؤكد وذكر درجة الثقة لكل رقم.",
     `3-أ) ضمن قسم [DAMAGES_LOSSES] أضف سطرين إلزاميين بصيغة واضحة: ${fatalityLine} ثم ${injuryLine}`,
-    "3-ب) إذا وُجد تضارب أرقام بين المصادر: اذكر الرقم الرسمي الأحدث كـ(مؤكد) ثم اذكر الأرقام الأخرى كـ(غير مؤكدة) مع سبب مختصر.",
-    "3-ج) لا تعرض المراجع/روابط المصادر داخل النص النهائي المخصص للمستخدم؛ استخدمها فقط داخلياً في الاستدلال.",
+    ...(safeFlightOpsSnapshot ? [`3-ب) أضف سطر طيران إلزامي داخل [DAMAGES_LOSSES]: ${safeFlightOpsSnapshot}`] : []),
+    "3-ج) إذا وُجد تضارب أرقام بين المصادر: اذكر الرقم الرسمي الأحدث كـ(مؤكد) ثم اذكر الأرقام الأخرى كـ(غير مؤكدة) مع سبب مختصر.",
+    "3-د) لا تعرض المراجع/روابط المصادر داخل النص النهائي المخصص للمستخدم؛ استخدمها فقط داخلياً في الاستدلال.",
     "4) تقدير التكلفة الاقتصادية المباشرة وغير المباشرة إن توفرت المؤشرات.",
     "5) إجراءات التخفيف والاستجابة التي تم اتخاذها فعلياً منذ بداية الحدث.",
     "5-أ) داخل [MITIGATION] اكتب قسمين واضحين: (إجراءات حالية) و(إجراءات تنبؤية خلال 6-24 ساعة).",
@@ -1607,18 +1786,24 @@ function parseOperationalSections(text) {
   return out;
 }
 
-function enrichDamagesLossesSection(text, workspace, fatalityStats) {
+function enrichDamagesLossesSection(text, workspace, fatalityStats, evidenceRows = []) {
   const country = String(workspace?.country || "الدولة المستهدفة").trim();
   const fatalityLine = buildFatalityAutoLine({ country, analysisDateFrom: workspace?.analysisDateFrom }, fatalityStats);
   const injuryLine = buildInjuryAutoLine({ country, analysisDateFrom: workspace?.analysisDateFrom }, fatalityStats);
-  const autoLines = `${fatalityLine}\n${injuryLine}`;
+  const flightOpsLine = buildFlightOpsSnapshotLine(evidenceRows, workspace);
+  const autoLines = `${fatalityLine}\n${injuryLine}\n${flightOpsLine}`;
   const baseText = String(text || "").trim();
   if (!baseText) return autoLines;
   const lines = baseText
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .filter((line) => !/حصيلة\s+الوفيات\s+المؤكدة|لا\s+توجد\s+وفيات\s+مؤكدة|حصيلة\s+الإصابات\s+المؤكدة|لا\s+توجد\s+إصابات\s+مؤكدة/i.test(line));
+    .filter(
+      (line) =>
+        !/حصيلة\s+الوفيات\s+المؤكدة|لا\s+توجد\s+وفيات\s+مؤكدة|حصيلة\s+الإصابات\s+المؤكدة|لا\s+توجد\s+إصابات\s+مؤكدة|مؤشرات\s+حركة\s+الطيران\s+المرتبطة\s+بالدولة/i.test(
+          line
+        )
+    );
   const cleaned = lines.join("\n").trim();
   return cleaned ? `${autoLines}\n${cleaned}` : autoLines;
 }
@@ -3443,6 +3628,7 @@ export default function App() {
   const [v2OpsFocusPointId, setV2OpsFocusPointId] = useState(null);
   const [v2OpsHoveredPointId, setV2OpsHoveredPointId] = useState(null);
   const [v2ThreatCountry, setV2ThreatCountry] = useState(threatCountryDefs[0]?.country || "UAE");
+  const [warThreatEvents, setWarThreatEvents] = useState([]);
   const [predictionTickets, setPredictionTickets] = useState([]);
   const [predictionUpdates, setPredictionUpdates] = useState([]);
   const [seenPredictionUpdateIds, setSeenPredictionUpdateIds] = useState([]);
@@ -3507,7 +3693,7 @@ export default function App() {
         jsonCargoStatusResp,
       ] =
         await Promise.all([
-        apiGet("/events?limit=4000"),
+        apiGet("/events?limit=1800"),
         apiGet("/alerts?limit=200"),
         apiGet("/sources"),
         apiGet("/ai/messages?limit=120"),
@@ -3600,6 +3786,29 @@ export default function App() {
     });
     return unsubscribe;
   }, [loadAll]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const path = `/events?limit=4000&event_time_from=${encodeURIComponent(WAR_START_ISO)}`;
+    const run = async () => {
+      try {
+        const rows = await apiGet(path);
+        if (cancelled) return;
+        setWarThreatEvents(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (cancelled) return;
+        setWarThreatEvents([]);
+      }
+    };
+    void run();
+    const id = setInterval(() => {
+      void run();
+    }, 300000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
 
   const sourceScopedEvents = useMemo(() => {
     let rows = [...events];
@@ -3751,7 +3960,7 @@ export default function App() {
     };
   }, [v2OpsLayers]);
 
-  function buildWorkspaceEventsPath(workspace, limit = 900) {
+  function buildWorkspaceEventsPath(workspace, limit = 600) {
     const params = new URLSearchParams();
     params.set("limit", String(limit));
     const range = resolveAnalysisDateRange(workspace);
@@ -3868,7 +4077,23 @@ export default function App() {
       }
     }
     const extra = Array.isArray(rows) ? rows.map((row) => row.id).filter((id) => Number.isInteger(id) && id > 0) : [];
-    return [...new Set([...seed, ...extra])];
+    const merged = [...new Set([...seed, ...extra])];
+    if (merged.length <= MAX_TICKET_EVENT_IDS) return merged;
+
+    const nowMs = Date.now();
+    const scoreById = (id) => {
+      const row = eventsById.get(id) || activeWorkspaceEvidenceById.get(id);
+      if (!row) return -1;
+      const text = `${row.title || ""} ${row.summary || ""} ${row.details || ""} ${row.ai_assessment || ""}`.toLowerCase();
+      const hasCasualtySignal = /(injur|fatal|death|killed|وفيات|وفاة|إصاب|مصاب|قتيل|قتلى)/i.test(text);
+      const severity = Number(row.severity) || 1;
+      const eventMs = parsePossiblyDate(eventDisplayTime(row))?.getTime?.() || nowMs;
+      const ageMinutes = Math.max(0, Math.floor((nowMs - eventMs) / 60000));
+      const recencyScore = Math.max(0, 240 - ageMinutes);
+      return severity * 1000 + recencyScore + (hasCasualtySignal ? 5000 : 0);
+    };
+
+    return merged.sort((a, b) => scoreById(b) - scoreById(a)).slice(0, MAX_TICKET_EVENT_IDS);
   }
 
   function updateActivePredictionWorkspace(patch) {
@@ -4696,9 +4921,21 @@ export default function App() {
       "اعتراض",
       "دفاع جوي",
     ];
-    return (events || [])
+    const merged = new Map();
+    for (const row of warThreatEvents || []) {
+      if (!row?.id) continue;
+      merged.set(row.id, row);
+    }
+    for (const row of events || []) {
+      if (!row?.id) continue;
+      merged.set(row.id, row);
+    }
+
+    return [...merged.values()]
       .filter((row) => {
         if (row.source_type === "flight" || row.source_type === "marine") return false;
+        const ts = parsePossiblyDate(eventDisplayTime(row))?.getTime() ?? 0;
+        if (!ts || ts < WAR_START_DATE_MS) return false;
         if (v2TrustedOnly && !isTrustedEvent(row)) return false;
         const text = eventText(row);
         if (!threatKeywords.some((keyword) => text.includes(keyword))) return false;
@@ -4711,7 +4948,7 @@ export default function App() {
         const bTs = parsePossiblyDate(eventDisplayTime(b))?.getTime() ?? 0;
         return aTs - bTs;
       });
-  }, [events, v2TrustedOnly]);
+  }, [events, warThreatEvents, v2TrustedOnly]);
 
   const v2ThreatRows = useMemo(() => {
     const rows = threatCountryDefs.map((countryDef) => {
@@ -4859,7 +5096,7 @@ export default function App() {
           sub: `${normalizeThreatValue(threatRow.ballistic)} بالستي | ${normalizeThreatValue(threatRow.cruise)} كروز | ${normalizeThreatValue(
             threatRow.drones
           )} مسيّرات`,
-          note: `قيم تراكمية من جميع الإشارات الموثوقة المحمّلة (${threatRow.mentions} إشارات مرتبطة بالدولة).`,
+          note: `قيم تراكمية منذ 27/02/2026 من جميع الإشارات الموثوقة المحمّلة (${threatRow.mentions} إشارات مرتبطة بالدولة).`,
           lat: coords.lat,
           lon: coords.lon,
           rowId: null,
@@ -5197,7 +5434,7 @@ export default function App() {
       const baseRaw = selectedPredictionSections[section.key];
       const raw =
         section.key === "DAMAGES_LOSSES"
-          ? enrichDamagesLossesSection(baseRaw, activePredictionWorkspace, activeWorkspaceFatalityStats)
+          ? enrichDamagesLossesSection(baseRaw, activePredictionWorkspace, activeWorkspaceFatalityStats, selectedPredictionEvidence)
           : section.key === "MITIGATION"
           ? selectedMitigationContent
           : baseRaw;
@@ -5217,6 +5454,7 @@ export default function App() {
     selectedPredictionSections,
     activePredictionWorkspace,
     activeWorkspaceFatalityStats,
+    selectedPredictionEvidence,
     selectedMitigationContent,
   ]);
   const predictionExecSectionKeys = useMemo(() => new Set(["CURRENT_BASELINE", "DAMAGES_LOSSES", "MITIGATION", "SHORT_TERM_PREDICTION"]), []);
@@ -5526,6 +5764,7 @@ export default function App() {
         .map((id) => eventsById.get(id) || activeWorkspaceEvidenceById.get(id))
         .filter(Boolean);
       const transportIntel = buildTransportIntelSummary(analysisRows, activePredictionWorkspace);
+      const flightOpsSnapshot = buildFlightOpsSnapshotLine(analysisRows, activePredictionWorkspace);
       const structuredPrompt = buildOperationalAnalysisTemplate({
         focus: activePredictionWorkspace.predictionFocus,
         country: activePredictionWorkspace.country,
@@ -5534,6 +5773,7 @@ export default function App() {
         analysisDateFrom: activePredictionWorkspace.analysisDateFrom,
         fatalityStats: activeWorkspaceFatalityStats,
         transportIntel,
+        flightOpsSnapshot,
       });
       const insight = await apiPost("/ai/insights", {
         title: `تحليل ${activePredictionWorkspace.label}: ${activePredictionWorkspace.predictionFocus || "تركيز عام"}`,
@@ -5566,6 +5806,7 @@ export default function App() {
       setError("أدخل عنوان التوقع والتركيز والطلب.");
       return;
     }
+    setError("");
     setCreatingPrediction(true);
     try {
       const baseIds = v2SelectedEventIds.length > 0 ? v2SelectedEventIds : v2Events.slice(0, 40).map((row) => row.id);
@@ -5578,6 +5819,7 @@ export default function App() {
         .map((id) => eventsById.get(id) || activeWorkspaceEvidenceById.get(id))
         .filter(Boolean);
       const transportIntel = buildTransportIntelSummary(analysisRows, activePredictionWorkspace);
+      const flightOpsSnapshot = buildFlightOpsSnapshotLine(analysisRows, activePredictionWorkspace);
       const structuredRequest = buildOperationalAnalysisTemplate({
         focus: activePredictionWorkspace.predictionFocus,
         country: activePredictionWorkspace.country,
@@ -5586,11 +5828,13 @@ export default function App() {
         analysisDateFrom: activePredictionWorkspace.analysisDateFrom,
         fatalityStats: activeWorkspaceFatalityStats,
         transportIntel,
+        flightOpsSnapshot,
       });
+      const boundedRequest = clampPredictionRequestText(structuredRequest, 3900);
       const ticket = await apiPost("/ai/predictions", {
         title: String(activePredictionWorkspace.predictionTitle || "").trim(),
         focus_query: String(activePredictionWorkspace.predictionFocus || "").trim(),
-        request_text: structuredRequest,
+        request_text: boundedRequest,
         horizon_hours: Number(activePredictionWorkspace.predictionHorizon) || 24,
         scope: activePredictionWorkspace.id,
         event_ids: ids
@@ -5618,9 +5862,11 @@ export default function App() {
         .map((id) => eventsById.get(id) || activeWorkspaceEvidenceById.get(id))
         .filter(Boolean);
       const transportIntel = buildTransportIntelSummary(selectedRows, activePredictionWorkspace);
+      const flightOpsSnapshot = buildFlightOpsSnapshotLine(selectedRows, activePredictionWorkspace);
       const transportNote = transportIntel ? `\n\n[TRANSPORT_INTEL]\n${transportIntel}` : "";
+      const flightOpsNote = flightOpsSnapshot ? `\n\n[FLIGHT_OPS]\n${flightOpsSnapshot}` : "";
       await apiPost(`/ai/predictions/${ticketId}/update`, {
-        note: `${prefix}${predictionNote.trim()}${transportNote}`.trim(),
+        note: `${prefix}${predictionNote.trim()}${transportNote}${flightOpsNote}`.trim(),
         event_ids: v2SelectedEventIds
       });
       setPredictionNote("");
@@ -7199,7 +7445,7 @@ export default function App() {
                         </table>
                       </div>
                       <small className="details-meta">
-                        القيم تراكمية منذ أول حدث تهديدي محمّل في النظام (لا تنخفض مع مرور الوقت). يتم حذف تكرار نفس القصة، واعتماد صيغة: أساس تراكمي رسمي + زيادات أحداث جديدة + مرصود بلا رقم. اختيار دولة من الجدول يرشّح نقاط الطيران والسفن والتهديدات على الخريطة والقوائم بالأسفل.
+                        القيم تراكمية منذ 27/02/2026 ولا تنخفض مع مرور الوقت. يتم حذف تكرار نفس القصة، واعتماد صيغة: أساس تراكمي رسمي + زيادات أحداث جديدة + مرصود بلا رقم. اختيار دولة من الجدول يرشّح نقاط الطيران والسفن والتهديدات على الخريطة والقوائم بالأسفل.
                       </small>
                     </section>
                   </div>
@@ -7399,8 +7645,20 @@ export default function App() {
                   تاريخ المعلومات من
                   <input
                     type="date"
-                    value={activePredictionWorkspace?.analysisDateFrom || ""}
-                    onChange={(event) => updateActivePredictionWorkspace({ analysisDateFrom: event.target.value })}
+                    lang="en-CA"
+                    dir="ltr"
+                    value={normalizeDateInputValue(activePredictionWorkspace?.analysisDateFrom)}
+                    onClick={(event) => {
+                      const picker = event.currentTarget?.showPicker;
+                      if (typeof picker === "function") {
+                        try {
+                          picker.call(event.currentTarget);
+                        } catch {
+                          // Browser does not allow imperative open for this interaction.
+                        }
+                      }
+                    }}
+                    onChange={(event) => updateActivePredictionWorkspace({ analysisDateFrom: normalizeDateInputValue(event.target.value) })}
                   />
                 </label>
                 <label>
@@ -7451,7 +7709,16 @@ export default function App() {
                   <br />
                   {buildInjuryAutoLine(activePredictionWorkspace, activeWorkspaceFatalityStats)}
                 </div>
-                <button className="btn btn-accent" type="button" onClick={createPredictionTicket} disabled={creatingPrediction}>
+                <button
+                  className="btn btn-accent prediction-create-btn"
+                  type="button"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void createPredictionTicket();
+                  }}
+                  disabled={creatingPrediction}
+                >
                   {creatingPrediction ? "جارٍ الإنشاء..." : "إنشاء تذكرة توقع"}
                 </button>
               </div>

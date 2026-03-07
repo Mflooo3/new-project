@@ -2755,6 +2755,13 @@ textarea {
   gap: 10px;
 }
 
+.prediction-create-btn {
+  width: 100%;
+  position: relative;
+  z-index: 4;
+  pointer-events: auto;
+}
+
 .v2-prediction-list {
   display: grid;
   gap: 8px;

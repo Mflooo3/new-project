@@ -20,7 +20,18 @@ export async function apiPost(path, body = {}) {
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body)
   });
-  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const payload = await res.json();
+      if (payload?.detail) {
+        detail = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+      }
+    } catch {
+      // Keep generic fallback when body is not JSON.
+    }
+    throw new Error(`POST ${path} failed: ${res.status}${detail ? ` - ${detail}` : ""}`);
+  }
   return res.json();
 }
 
