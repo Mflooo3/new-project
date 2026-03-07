@@ -270,7 +270,7 @@ const presetSources = [
     name: "X Trusted GCC Agencies",
     source_type: "social",
     endpoint:
-      "https://api.x.com/2/tweets/search/recent?query=(from%3Awamnews%20OR%20from%3Aspagov%20OR%20from%3AQNAEnglish%20OR%20from%3AQNAArabic%20OR%20from%3AKUNAArabTimes%20OR%20from%3ABNA_BH%20OR%20from%3AOmanNewsAgency%20OR%20from%3AMOIUAE%20OR%20from%3Anet_ad)%20(%D8%B9%D8%A7%D8%AC%D9%84%20OR%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20OR%20%D8%A7%D9%84%D8%AE%D9%84%D9%8A%D8%AC%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA)%20lang%3Aar%20-is%3Aretweet&max_results=60",
+      "https://api.x.com/2/tweets/search/recent?query=(from%3Awamnews%20OR%20from%3Aspagov%20OR%20from%3AQNAEnglish%20OR%20from%3AQNAArabic%20OR%20from%3AKUNAArabTimes%20OR%20from%3ABNA_BH%20OR%20from%3AOmanNewsAgency%20OR%20from%3AMOIUAE%20OR%20from%3AMODGovUAE%20OR%20from%3Anet_ad)%20(%D8%B9%D8%A7%D8%AC%D9%84%20OR%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20OR%20%D8%A7%D9%84%D8%AE%D9%84%D9%8A%D8%AC%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA)%20lang%3Aar%20-is%3Aretweet&max_results=60",
     parser_hint: "x_recent",
     poll_interval_seconds: 90
   },
@@ -278,7 +278,7 @@ const presetSources = [
     name: "X UAE Government + Media Offices",
     source_type: "social",
     endpoint:
-      "https://api.x.com/2/tweets/search/recent?query=(from%3Awamnews%20OR%20from%3Auaegov%20OR%20from%3ADXBMediaOffice%20OR%20from%3Aadmediaoffice)%20(%D8%B9%D8%A7%D8%AC%D9%84%20OR%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA%20OR%20UAE)%20lang%3Aar%20-is%3Aretweet&max_results=60",
+      "https://api.x.com/2/tweets/search/recent?query=(from%3Awamnews%20OR%20from%3Auaegov%20OR%20from%3ADXBMediaOffice%20OR%20from%3Aadmediaoffice%20OR%20from%3AMODGovUAE)%20(%D8%B9%D8%A7%D8%AC%D9%84%20OR%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA%20OR%20UAE)%20lang%3Aar%20-is%3Aretweet&max_results=60",
     parser_hint: "x_recent",
     poll_interval_seconds: 90
   },
@@ -331,6 +331,7 @@ const officialSourceNameMarkers = [
   "bna",
   "oman",
   "moiuae",
+  "modgovuae",
   "uaegov",
   "dxbmediaoffice",
   "admediaoffice",
@@ -339,6 +340,8 @@ const officialSourceNameMarkers = [
   "emirates247",
   "thenationalnews",
   "net_ad",
+  "mod uae",
+  "ministry of defence uae",
   "abu dhabi tv",
   "ministry of interior",
   "opensky",
@@ -357,6 +360,8 @@ const officialAgencyXHandles = new Set([
   "bna_bh",
   "omannewsagency",
   "moiuae",
+  "modgovae",
+  "modgovuae",
   "uaegov",
   "dxbmediaoffice",
   "admediaoffice",
@@ -593,15 +598,20 @@ const threatSignalDefs = [
     key: "ballistic",
     label: "بالستي",
     patterns: [
+      /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:من\s+)?(?:ال)?(?:صاروخ|صواريخ|missiles?)\s*(?:ال)?(?:بال(?:ي)?ستي(?:ة)?|ballistic(?:\s+missiles?)?)/giu,
       /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:صاروخ|صواريخ)?\s*(?:بالستي(?:ة)?|ballistic(?:\s+missiles?)?)/giu,
+      /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:صاروخ|صواريخ)?\s*(?:باليستي(?:ة)?)/giu,
       /(?:بالستي(?:ة)?|ballistic(?:\s+missiles?)?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)/giu,
+      /(?:باليستي(?:ة)?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)/giu,
       /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:اعتراض(?:ات)?|interceptions?)\s*(?:ل|of)?\s*(?:صاروخ(?:ات)?|missiles?|تهديد(?:ات)?\s+جوية)/giu,
       /(?:اعتراض(?:ات)?|interceptions?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)\s*(?:صاروخ(?:ات)?|missiles?|تهديد(?:ات)?\s+جوية)?/giu,
     ],
     mentionPatterns: [
       /\bballistic(?:\s+missiles?)?\b/iu,
       /صاروخ(?:\s+)?بالستي(?:ة)?/u,
+      /صاروخ(?:\s+)?باليستي(?:ة)?/u,
       /صواريخ(?:\s+)?بالستية/u,
+      /صواريخ(?:\s+)?باليستية/u,
       /(?:صاروخ|صواريخ|missiles?)/iu,
     ],
   },
@@ -624,14 +634,19 @@ const threatSignalDefs = [
     key: "drones",
     label: "مسيّرات",
     patterns: [
+      /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:من\s+)?(?:ال)?(?:طائرات?|مسي(?:ّ)?(?:رة|رات)|مسيرة|مسيرات|درون(?:ات)?|drones?|uavs?)/giu,
       /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:طائرات|مسي(?:رة|رات)|درون(?:ات)?|drones?|uavs?)/giu,
+      /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:طائرات|مسي(?:ّ)?(?:رة|رات)|مسيرة|مسيرات|درون(?:ات)?|drones?|uavs?)/giu,
       /(?:مسي(?:رة|رات)|درون(?:ات)?|drones?|uavs?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)/giu,
+      /(?:مسي(?:ّ)?(?:رة|رات)|مسيرة|مسيرات|درون(?:ات)?|drones?|uavs?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)/giu,
       /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:تهديد(?:ات)?\s+جوية|air\s+threats?)/giu,
     ],
     mentionPatterns: [
       /\bdrones?\b/iu,
       /\buavs?\b/iu,
       /مسي(?:رة|رات)/u,
+      /مسي(?:ّ)?(?:رة|رات)/u,
+      /مسيرة|مسيرات/u,
       /درون(?:ات)?/u,
       /طائرة(?:\s+)?مسي(?:رة|ّرة)/u,
       /تهديد(?:ات)?\s+جوية/u,
@@ -1240,7 +1255,7 @@ function isFlightIntelLike(row) {
 function isThreatIntelLike(row) {
   if (!row) return false;
   const text = eventText(row);
-  return /(missile|ballistic|cruise|drone|uav|intercept|air defense|صاروخ|بالستي|كروز|مسي(?:رة|رات)|درون|اعتراض|دفاع جوي)/.test(
+  return /(missile|missiles|ballistic|cruise|drone|drones|uav|uavs|intercept|air defense|صاروخ|صواريخ|باليست|بالست|كروز|مسي(?:ّ)?(?:رة|رات)|مسيرة|مسيرات|درون|اعتراض|دفاع جوي)/.test(
     text
   );
 }
@@ -1248,9 +1263,9 @@ function isThreatIntelLike(row) {
 function inferThreatSignalKind(text) {
   const source = normalizeNumericText(text || "");
   if (!source) return "threat";
-  if (/drone|uav|مسي(?:رة|رات)|درون/.test(source)) return "drones";
+  if (/drone|drones|uav|uavs|مسي(?:ّ)?(?:رة|رات)|مسيرة|مسيرات|درون/.test(source)) return "drones";
   if (/cruise|كروز|مجنح/.test(source)) return "cruise";
-  if (/ballistic|بالستي|missile|صاروخ|intercept|اعتراض/.test(source)) return "ballistic";
+  if (/ballistic|باليست|بالست|missile|missiles|صاروخ|صواريخ|intercept|اعتراض/.test(source)) return "ballistic";
   return "threat";
 }
 
@@ -3789,12 +3804,35 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    const path = `/events?limit=4000&event_time_from=${encodeURIComponent(WAR_START_ISO)}`;
+    const basePath = `/events?limit=4000&event_time_from=${encodeURIComponent(WAR_START_ISO)}`;
+    const threatHistoryPaths = [
+      `${basePath}&source_type=social`,
+      `${basePath}&source_type=news`,
+      `${basePath}&source_type=incident`,
+      `${basePath}&source_type=cyber`,
+      `${basePath}&source_type=custom`,
+    ];
     const run = async () => {
       try {
-        const rows = await apiGet(path);
+        const payloads = await Promise.all(
+          threatHistoryPaths.map(async (path) => {
+            try {
+              const rows = await apiGet(path);
+              return Array.isArray(rows) ? rows : [];
+            } catch {
+              return [];
+            }
+          })
+        );
+        const merged = new Map();
+        for (const rows of payloads) {
+          for (const row of rows) {
+            if (!row?.id) continue;
+            merged.set(row.id, row);
+          }
+        }
         if (cancelled) return;
-        setWarThreatEvents(Array.isArray(rows) ? rows : []);
+        setWarThreatEvents([...merged.values()]);
       } catch {
         if (cancelled) return;
         setWarThreatEvents([]);
@@ -4904,23 +4942,6 @@ export default function App() {
   }, [v2MarineSensorSnapshots, v2MarineIntelSnapshots]);
 
   const v2ThreatEvidenceEvents = useMemo(() => {
-    const threatKeywords = [
-      "missile",
-      "ballistic",
-      "cruise",
-      "drone",
-      "uav",
-      "intercept",
-      "air defense",
-      "صاروخ",
-      "بالستي",
-      "كروز",
-      "مسيّرة",
-      "مسيّرات",
-      "درون",
-      "اعتراض",
-      "دفاع جوي",
-    ];
     const merged = new Map();
     for (const row of warThreatEvents || []) {
       if (!row?.id) continue;
@@ -4938,7 +4959,7 @@ export default function App() {
         if (!ts || ts < WAR_START_DATE_MS) return false;
         if (v2TrustedOnly && !isTrustedEvent(row)) return false;
         const text = eventText(row);
-        if (!threatKeywords.some((keyword) => text.includes(keyword))) return false;
+        if (!isThreatIntelLike(row)) return false;
         return threatCountryDefs.some((countryDef) =>
           countryDef.markers.some((marker) => text.includes(cleanText(marker).toLowerCase()))
         );
