@@ -13,3 +13,9 @@ psycopg[binary]==3.2.6
 reportlab==4.2.5
 arabic-reshaper==3.0.0
 python-bidi==0.4.2
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+boto3==1.37.11
+pyotp==2.9.0
+qrcode[pil]==8.2

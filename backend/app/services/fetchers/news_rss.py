@@ -63,6 +63,45 @@ def _sanitize_summary(value: str | None) -> str | None:
     return text
 
 
+def _extract_image_url(entry: dict) -> str | None:
+    media_content = entry.get("media_content")
+    if isinstance(media_content, list):
+        for item in media_content:
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get("url") or "").strip()
+            if value:
+                return value
+
+    media_thumbnail = entry.get("media_thumbnail")
+    if isinstance(media_thumbnail, list):
+        for item in media_thumbnail:
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get("url") or "").strip()
+            if value:
+                return value
+
+    links = entry.get("links")
+    if isinstance(links, list):
+        for item in links:
+            if not isinstance(item, dict):
+                continue
+            media_type = str(item.get("type") or "").lower()
+            if media_type.startswith("image/"):
+                value = str(item.get("href") or "").strip()
+                if value:
+                    return value
+
+    rich_html = str(entry.get("summary") or entry.get("description") or "")
+    if rich_html:
+        match = re.search(r"<img[^>]+src=[\"']([^\"']+)[\"']", rich_html, flags=re.IGNORECASE)
+        if match and match.group(1):
+            return html.unescape(match.group(1)).strip()
+
+    return None
+
+
 def fetch_news_rss(endpoint: str, limit: int = 50) -> list[RawEvent]:
     parsed = feedparser.parse(endpoint)
     is_google_rss = "news.google.com" in (endpoint or "").lower()
@@ -102,6 +141,9 @@ def fetch_news_rss(endpoint: str, limit: int = 50) -> list[RawEvent]:
             details_parts.append(f"published={published_raw}")
         if tags:
             details_parts.append(f"tags={tags}")
+        image_url = _extract_image_url(entry)
+        if image_url:
+            details_parts.append(f"image_url={image_url}")
         details = " | ".join(details_parts) if details_parts else None
 
         items.append(

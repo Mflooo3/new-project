@@ -35,6 +35,30 @@ def _fetch_json(endpoint: str) -> Any:
         return response.json()
 
 
+def _first_image_url(row: dict[str, Any]) -> str | None:
+    for key in (
+        "image_url",
+        "image",
+        "imageUrl",
+        "urlToImage",
+        "thumbnail",
+        "thumbnail_url",
+        "cover_image",
+    ):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    media = row.get("media")
+    if isinstance(media, list):
+        for item in media:
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get("url") or item.get("image") or "").strip()
+            if value:
+                return value
+    return None
+
+
 def fetch_newsdata_io(endpoint: str, limit: int = 50) -> list[RawEvent]:
     url = _with_query_if_missing(
         endpoint,
@@ -55,6 +79,9 @@ def fetch_newsdata_io(endpoint: str, limit: int = 50) -> list[RawEvent]:
             details.append(f"source={source_id}")
         if row.get("category"):
             details.append(f"category={','.join(row.get('category') or [])}")
+        image_url = _first_image_url(row)
+        if image_url:
+            details.append(f"image_url={image_url}")
         items.append(
             RawEvent(
                 external_id=str(row.get("article_id") or row.get("link") or ""),
@@ -86,7 +113,13 @@ def fetch_gnews_io(endpoint: str, limit: int = 50) -> list[RawEvent]:
         source_name = ""
         if isinstance(row.get("source"), dict):
             source_name = str(row.get("source", {}).get("name") or "")
-        details = f"source={source_name}" if source_name else None
+        details_parts = []
+        if source_name:
+            details_parts.append(f"source={source_name}")
+        image_url = _first_image_url(row)
+        if image_url:
+            details_parts.append(f"image_url={image_url}")
+        details = " | ".join(details_parts) if details_parts else None
         items.append(
             RawEvent(
                 external_id=str(row.get("url") or row.get("title") or ""),
@@ -119,7 +152,13 @@ def fetch_newsapi_org(endpoint: str, limit: int = 50) -> list[RawEvent]:
         source_name = ""
         if isinstance(row.get("source"), dict):
             source_name = str(row.get("source", {}).get("name") or "")
-        details = f"source={source_name}" if source_name else None
+        details_parts = []
+        if source_name:
+            details_parts.append(f"source={source_name}")
+        image_url = _first_image_url(row)
+        if image_url:
+            details_parts.append(f"image_url={image_url}")
+        details = " | ".join(details_parts) if details_parts else None
         items.append(
             RawEvent(
                 external_id=str(row.get("url") or row.get("title") or ""),
@@ -155,7 +194,13 @@ def fetch_apify_arab_news(endpoint: str, limit: int = 50) -> list[RawEvent]:
         if not isinstance(row, dict):
             continue
         source_name = str(row.get("source") or row.get("publisher") or "")
-        details = f"source={source_name}" if source_name else None
+        details_parts = []
+        if source_name:
+            details_parts.append(f"source={source_name}")
+        image_url = _first_image_url(row)
+        if image_url:
+            details_parts.append(f"image_url={image_url}")
+        details = " | ".join(details_parts) if details_parts else None
         items.append(
             RawEvent(
                 external_id=str(row.get("id") or row.get("url") or row.get("title") or ""),

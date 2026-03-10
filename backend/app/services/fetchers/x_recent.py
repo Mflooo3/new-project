@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse, unquote
 
 import httpx
 from dateutil import parser
@@ -8,6 +8,14 @@ from dateutil import parser
 from app.config import settings
 from app.services.fetchers.base import RawEvent
 from app.services.sentiment import sentiment
+
+
+def _x_token() -> str:
+    raw_token = (settings.x_api_bearer_token or settings.x_api_key or "").strip()
+    if not raw_token:
+        return ""
+    # Operators sometimes paste URL-encoded bearer tokens (e.g. %3D for '=').
+    return unquote(raw_token).strip()
 
 
 def _parse_date(value: str | None) -> datetime | None:
@@ -78,8 +86,8 @@ def _entity_urls(row: dict[str, Any]) -> list[str]:
     return out
 
 
-def fetch_x_recent(endpoint: str, limit: int = 80) -> list[RawEvent]:
-    token = (settings.x_api_bearer_token or settings.x_api_key or "").strip()
+def fetch_x_recent(endpoint: str, limit: int = 80, stats: dict[str, int] | None = None) -> list[RawEvent]:
+    token = _x_token()
     if not token:
         return []
 
@@ -102,6 +110,8 @@ def fetch_x_recent(endpoint: str, limit: int = 80) -> list[RawEvent]:
         response = client.get(url)
         response.raise_for_status()
         payload: Any = response.json()
+    if isinstance(stats, dict):
+        stats["api_calls"] = int(stats.get("api_calls", 0)) + 1
 
     rows = payload.get("data") if isinstance(payload, dict) else []
     if not isinstance(rows, list):
@@ -175,4 +185,111 @@ def fetch_x_recent(endpoint: str, limit: int = 80) -> list[RawEvent]:
                 event_time=_parse_date(row.get("created_at")),
             )
         )
+    if isinstance(stats, dict):
+        stats["rows"] = int(stats.get("rows", 0)) + len(items)
     return items
+
+
+def _extract_x_error_detail(payload: Any) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    errors = payload.get("errors")
+    if isinstance(errors, list) and errors:
+        first = errors[0]
+        if isinstance(first, dict):
+            message = str(first.get("message") or first.get("detail") or first.get("title") or "").strip()
+            if message:
+                return message
+        if isinstance(first, str):
+            message = first.strip()
+            if message:
+                return message
+    for key in ("detail", "message", "title", "error"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, dict):
+            nested = str(value.get("message") or value.get("detail") or value.get("title") or "").strip()
+            if nested:
+                return nested
+    return None
+
+
+def probe_x_recent_status(endpoint: str | None = None) -> dict[str, Any]:
+    checked_at = datetime.now(timezone.utc).isoformat()
+    token = _x_token()
+    probe_endpoint = (endpoint or "").strip() or f"{settings.x_api_base_url.rstrip('/')}/tweets/search/recent?query=gulf"
+    if not token:
+        return {
+            "configured": False,
+            "state": "not_configured",
+            "status_code": None,
+            "message": "X bearer token is not configured.",
+            "detail": None,
+            "checked_at": checked_at,
+            "endpoint": probe_endpoint,
+        }
+
+    url = _with_query_if_missing(
+        probe_endpoint,
+        {
+            "max_results": "10",
+            "tweet.fields": "created_at,lang",
+            "sort_order": "recency",
+        },
+    )
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "gulf-monitor/1.0",
+    }
+    try:
+        with httpx.Client(timeout=20, headers=headers) as client:
+            response = client.get(url)
+        status_code = int(response.status_code)
+        payload: Any = None
+        detail: str | None = None
+        sample_count: int | None = None
+        try:
+            payload = response.json()
+            detail = _extract_x_error_detail(payload)
+            rows = payload.get("data") if isinstance(payload, dict) else []
+            sample_count = len(rows) if isinstance(rows, list) else None
+        except Exception:
+            payload = None
+
+        if status_code < 400:
+            sample_text = f" sample={sample_count}" if sample_count is not None else ""
+            return {
+                "configured": True,
+                "state": "ok",
+                "status_code": status_code,
+                "message": f"X API reachable.{sample_text}".strip(),
+                "detail": None,
+                "checked_at": checked_at,
+                "endpoint": url,
+            }
+
+        state = "error"
+        if status_code in {401, 403}:
+            state = "auth_error"
+        elif status_code == 429:
+            state = "quota_exceeded"
+        return {
+            "configured": True,
+            "state": state,
+            "status_code": status_code,
+            "message": "X authentication failed." if status_code in {401, 403} else f"X API returned HTTP {status_code}.",
+            "detail": detail,
+            "checked_at": checked_at,
+            "endpoint": url,
+        }
+    except Exception as exc:
+        return {
+            "configured": True,
+            "state": "error",
+            "status_code": None,
+            "message": "X status probe failed.",
+            "detail": str(exc)[:240],
+            "checked_at": checked_at,
+            "endpoint": url,
+        }

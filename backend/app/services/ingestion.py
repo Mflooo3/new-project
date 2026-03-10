@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import logging
 import re
 from typing import Callable
 
@@ -25,12 +26,14 @@ from app.services.fetchers.news_apis import (
     fetch_newsdata_io,
 )
 from app.services.fetchers.news_rss import fetch_news_rss
+from app.services.ocr import EventImageOCRService
 from app.services.fetchers.social import fetch_social_feed
 from app.services.fetchers.x_recent import fetch_x_recent
 from app.services.realtime import event_bus
 
 
 Fetcher = Callable[[str], list[RawEvent]]
+logger = logging.getLogger(__name__)
 MONITORED_TOPICS = {
     "war",
     "conflict",
@@ -113,6 +116,7 @@ LONG_LOOKBACK_NEWS_FEED_MARKERS = (
     "khaleej times uae feed",
     "emirates 24/7 uae feed",
     "the national uae feed",
+    "uae casualty verified feed",
 )
 
 
@@ -242,14 +246,17 @@ def _resolve_fetcher(source: Source) -> Fetcher | None:
 
 
 class IngestionService:
-    def __init__(self, session: Session, analyzer: AIAnalyzer | None = None):
+    def __init__(self, session: Session, analyzer: AIAnalyzer | None = None, tenant_id: int | None = None):
         self.session = session
         self.analyzer = analyzer or AIAnalyzer()
+        self.tenant_id = tenant_id
+        self.ocr = EventImageOCRService()
 
     def run_once(self, force: bool = False) -> dict[str, int]:
-        sources = self.session.exec(
-            select(Source).where(Source.enabled == true()).order_by(desc(Source.created_at))
-        ).all()
+        query = select(Source).where(Source.enabled == true())
+        if self.tenant_id is not None:
+            query = query.where(Source.tenant_id == self.tenant_id)
+        sources = self.session.exec(query.order_by(desc(Source.created_at))).all()
 
         events_collected = 0
         events_stored = 0
@@ -274,7 +281,15 @@ class IngestionService:
                 self.session.add(source)
                 self.session.commit()
                 sources_polled += 1
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "Ingestion source failed source=%s type=%s parser=%s endpoint=%s error=%s",
+                    source.name,
+                    source.source_type,
+                    source.parser_hint,
+                    source.endpoint,
+                    str(exc)[:280],
+                )
                 continue
 
             events_collected += len(raw_events)
@@ -298,10 +313,13 @@ class IngestionService:
                     continue
                 existing_event = self._find_existing_by_external_id(source, raw)
                 if existing_event is not None:
+                    raw = self._maybe_enrich_raw_with_ocr(raw=raw, source=source, existing_event=existing_event)
                     self._refresh_existing_event(source=source, raw=raw, event=existing_event)
                     continue
                 if self._exists(source, raw):
                     continue
+
+                raw = self._maybe_enrich_raw_with_ocr(raw=raw, source=source, existing_event=None)
 
                 relevance_score = _relevance_score(raw)
                 analysis = self.analyzer.analyze(
@@ -310,6 +328,7 @@ class IngestionService:
                     relevance_score=relevance_score,
                 )
                 event = Event(
+                    tenant_id=source.tenant_id,
                     source_id=source.id,
                     source_type=source.source_type,
                     source_name=source.name,
@@ -349,7 +368,10 @@ class IngestionService:
                 )
 
                 try:
-                    prediction_updates = AIWorkspaceService(session=self.session).auto_update_predictions_for_event(event)
+                    prediction_updates = AIWorkspaceService(
+                        session=self.session,
+                        tenant_id=event.tenant_id,
+                    ).auto_update_predictions_for_event(event)
                     for update in prediction_updates:
                         event_bus.publish_nowait(
                             {
@@ -371,18 +393,91 @@ class IngestionService:
             "alerts_created": alerts_created,
         }
 
+    def backfill_ocr_for_existing_events(
+        self,
+        *,
+        hours: int = 720,
+        limit: int = 450,
+        force: bool = False,
+    ) -> dict[str, int]:
+        now = datetime.now(timezone.utc)
+        start = now - timedelta(hours=max(1, int(hours)))
+        rows = self.session.exec(
+            select(Event)
+            .where(Event.event_time >= start)
+            .where(Event.source_type.in_(["news", "social", "custom", "incident"]))
+            .order_by(desc(Event.event_time))
+            .limit(max(1, min(int(limit), 3000)))
+        ).all()
+        if self.tenant_id is not None:
+            rows = [row for row in rows if row.tenant_id == self.tenant_id]
+
+        scanned = 0
+        updated = 0
+        skipped = 0
+        failed = 0
+
+        for event in rows:
+            scanned += 1
+            before_details = event.details or ""
+            if not force and ("ocr_status=ok" in before_details.lower() or "ocr_status=failed" in before_details.lower()):
+                skipped += 1
+                continue
+
+            raw = RawEvent(
+                external_id=event.external_id,
+                title=event.title,
+                summary=event.summary,
+                details=event.details,
+                url=event.url,
+                location=event.location,
+                latitude=event.latitude,
+                longitude=event.longitude,
+                event_time=event.event_time,
+            )
+            enriched = self._maybe_enrich_raw_with_ocr(raw=raw, source=None, existing_event=event, force=force)
+            if (enriched.details or "") == before_details:
+                skipped += 1
+                continue
+
+            event.summary = (enriched.summary or "")[:1500] or None
+            event.details = (enriched.details or "")[:3000] or None
+
+            try:
+                relevance_score = _relevance_score(enriched)
+                analysis = self.analyzer.analyze(
+                    raw=enriched,
+                    source_type=event.source_type,
+                    relevance_score=relevance_score,
+                )
+                event.relevance_score = relevance_score
+                event.severity = analysis.severity
+                event.tags = ",".join(analysis.tags)
+                event.ai_assessment = analysis.assessment
+                self.session.add(event)
+                self.session.commit()
+                updated += 1
+            except Exception:
+                self.session.rollback()
+                failed += 1
+
+        return {
+            "scanned": scanned,
+            "updated": updated,
+            "skipped": skipped,
+            "failed": failed,
+        }
+
     def _find_existing_by_external_id(self, source: Source, raw: RawEvent) -> Event | None:
         if not raw.external_id:
             return None
-        return self.session.exec(
-            select(Event)
-            .where(
-                Event.source_id == source.id,
-                Event.external_id == raw.external_id,
-            )
-            .order_by(desc(Event.created_at))
-            .limit(1)
-        ).first()
+        query = select(Event).where(
+            Event.source_id == source.id,
+            Event.external_id == raw.external_id,
+        )
+        if source.tenant_id is not None:
+            query = query.where(Event.tenant_id == source.tenant_id)
+        return self.session.exec(query.order_by(desc(Event.created_at)).limit(1)).first()
 
     def _refresh_existing_event(self, *, source: Source, raw: RawEvent, event: Event) -> None:
         changed = False
@@ -438,42 +533,63 @@ class IngestionService:
         self.session.add(event)
         self.session.commit()
 
+    def _maybe_enrich_raw_with_ocr(
+        self,
+        *,
+        raw: RawEvent,
+        source: Source | None,
+        existing_event: Event | None,
+        force: bool = False,
+    ) -> RawEvent:
+        if not self.ocr.available():
+            return raw
+        try:
+            source_name = source.name if source else (existing_event.source_name if existing_event else "source")
+            source_type = source.source_type if source else (existing_event.source_type if existing_event else "news")
+            return self.ocr.enrich_raw_event(raw=raw, source_name=source_name, source_type=source_type, force=force)
+        except Exception:
+            return raw
+
     def _exists(self, source: Source, raw: RawEvent) -> bool:
         normalized_time = raw.normalized_time()
         if raw.external_id:
-            existing = self.session.exec(
-                select(Event.id).where(
-                    Event.source_id == source.id,
-                    Event.external_id == raw.external_id,
-                )
-            ).first()
+            query = select(Event.id).where(
+                Event.source_id == source.id,
+                Event.external_id == raw.external_id,
+            )
+            if source.tenant_id is not None:
+                query = query.where(Event.tenant_id == source.tenant_id)
+            existing = self.session.exec(query).first()
             if existing:
                 return True
 
         if raw.event_time is not None:
-            exact_match = self.session.exec(
-                select(Event.id).where(
-                    Event.source_id == source.id,
-                    Event.title == raw.title[:300],
-                    Event.event_time == normalized_time,
-                )
-            ).first()
+            query = select(Event.id).where(
+                Event.source_id == source.id,
+                Event.title == raw.title[:300],
+                Event.event_time == normalized_time,
+            )
+            if source.tenant_id is not None:
+                query = query.where(Event.tenant_id == source.tenant_id)
+            exact_match = self.session.exec(query).first()
             return exact_match is not None
 
         recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
-        recent_match = self.session.exec(
-            select(Event.id).where(
-                Event.source_id == source.id,
-                Event.title == raw.title[:300],
-                Event.created_at >= recent_cutoff,
-            )
-        ).first()
+        query = select(Event.id).where(
+            Event.source_id == source.id,
+            Event.title == raw.title[:300],
+            Event.created_at >= recent_cutoff,
+        )
+        if source.tenant_id is not None:
+            query = query.where(Event.tenant_id == source.tenant_id)
+        recent_match = self.session.exec(query).first()
         return recent_match is not None
 
     def _create_alerts(self, event: Event) -> int:
         alerts: list[Alert] = build_alerts(event)
         count = 0
         for alert in alerts:
+            alert.tenant_id = event.tenant_id
             alert.event_id = event.id or 0
             self.session.add(alert)
             self.session.commit()

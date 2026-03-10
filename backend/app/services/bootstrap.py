@@ -4,17 +4,18 @@ from app.config import settings
 from app.models import Source
 
 
-def _source_exists(session: Session, source_type: str, endpoint: str) -> bool:
+def _source_exists(session: Session, source_type: str, endpoint: str, tenant_id: int | None) -> bool:
     row = session.exec(
         select(Source.id).where(
             Source.source_type == source_type,
             Source.endpoint == endpoint,
+            Source.tenant_id == tenant_id,
         )
     ).first()
     return row is not None
 
 
-def seed_default_sources(session: Session) -> None:
+def seed_default_sources(session: Session, *, tenant_id: int | None = None) -> None:
     defaults: list[Source] = []
     if settings.default_news_rss:
         defaults.append(
@@ -79,6 +80,32 @@ def seed_default_sources(session: Session) -> None:
                 parser_hint=settings.default_x_recent_parser_hint,
             )
         )
+    defaults.append(
+        Source(
+            name="X Oloumaldar + Aletihadae",
+            source_type="social",
+            endpoint=(
+                "https://api.x.com/2/tweets/search/recent?query="
+                "(from%3Aoloumaldar%20OR%20from%3Aaletihadae)%20"
+                "(%D8%B9%D8%A7%D8%AC%D9%84%20OR%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA%20OR%20UAE)%20"
+                "lang%3Aar%20-is%3Aretweet&max_results=60"
+            ),
+            parser_hint="x_recent",
+        )
+    )
+    defaults.append(
+        Source(
+            name="Oloumaldar/Aletihadae Publisher Feed",
+            source_type="news",
+            endpoint=(
+                "https://news.google.com/rss/search?q="
+                "(oloumaldar%20OR%20aletihadae%20OR%20%22%D8%B9%D9%84%D9%88%D9%85%20%D8%A7%D9%84%D8%AF%D8%A7%D8%B1%22%20OR%20site:alittihad.ae)%20"
+                "(uae%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA)"
+                "&hl=ar&gl=AE&ceid=AE:ar"
+            ),
+            parser_hint="rss",
+        )
+    )
     if settings.default_cnn_gulf_feed:
         defaults.append(
             Source(
@@ -151,9 +178,24 @@ def seed_default_sources(session: Session) -> None:
                 parser_hint="rss",
             )
         )
+    if settings.default_uae_casualty_feed:
+        defaults.append(
+            Source(
+                name="UAE Casualty Verified Feed",
+                source_type="news",
+                endpoint=settings.default_uae_casualty_feed,
+                parser_hint="rss",
+            )
+        )
     inserted = False
     for source in defaults:
-        if _source_exists(session=session, source_type=source.source_type, endpoint=source.endpoint):
+        source.tenant_id = tenant_id
+        if _source_exists(
+            session=session,
+            source_type=source.source_type,
+            endpoint=source.endpoint,
+            tenant_id=tenant_id,
+        ):
             continue
         session.add(source)
         inserted = True

@@ -2,6 +2,8 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, streamEvents } from "./api";
+import XNarrativeIntelPage from "./XNarrativeIntelPage";
+import OperationalImpactConsole from "./OperationalImpactConsole";
 
 const sourceTypeOptions = [
   { value: "all", label: "كل الأنواع" },
@@ -305,6 +307,22 @@ const presetSources = [
       "https://api.x.com/2/tweets/search/recent?query=(from%3ABBCAArabic%20OR%20from%3AFR24_ar%20OR%20from%3AAJArabic%20OR%20from%3ASkyNews%20OR%20from%3AQNAEnglish)%20(gulf%20OR%20uae%20OR%20saudi%20OR%20qatar%20OR%20kuwait%20OR%20bahrain%20OR%20oman%20OR%20breaking)%20-is%3Aretweet&max_results=60",
     parser_hint: "x_recent",
     poll_interval_seconds: 90
+  },
+  {
+    name: "X Oloumaldar + Aletihadae",
+    source_type: "social",
+    endpoint:
+      "https://api.x.com/2/tweets/search/recent?query=(from%3Aoloumaldar%20OR%20from%3Aaletihadae)%20(%D8%B9%D8%A7%D8%AC%D9%84%20OR%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA%20OR%20UAE)%20lang%3Aar%20-is%3Aretweet&max_results=60",
+    parser_hint: "x_recent",
+    poll_interval_seconds: 90
+  },
+  {
+    name: "Oloumaldar/Aletihadae Publisher Feed",
+    source_type: "news",
+    endpoint:
+      "https://news.google.com/rss/search?q=(oloumaldar%20OR%20aletihadae%20OR%20%22%D8%B9%D9%84%D9%88%D9%85%20%D8%A7%D9%84%D8%AF%D8%A7%D8%B1%22%20OR%20site:alittihad.ae)%20(uae%20OR%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA)&hl=ar&gl=AE&ceid=AE:ar",
+    parser_hint: "rss",
+    poll_interval_seconds: 180
   }
 ];
 
@@ -318,6 +336,8 @@ const officialPresetSourceNames = new Set([
   "X UAE News Outlets",
   "X Trusted Arab News Channels",
   "X Trusted Intl Arabic + Gulf",
+  "X Oloumaldar + Aletihadae",
+  "Oloumaldar/Aletihadae Publisher Feed",
   "Abu Dhabi TV YouTube Feed",
   "OpenSky Gulf Airspace (Official API)",
   "JSONCargo Gulf AIS (Official API)",
@@ -500,8 +520,19 @@ const LIST_PAGE_SIZE = 3;
 const SOURCE_DRAWER_PAGE_SIZE = 5;
 const MAX_TICKET_EVENT_IDS = 220;
 const DEFAULT_NEWS_WINDOW_HOURS = Math.max(0, Number(import.meta.env.VITE_NEWS_MAX_AGE_HOURS || 24));
-const WAR_START_ISO = "2026-02-27T00:00:00Z";
+const WAR_START_ISO = "2026-02-25T00:00:00Z";
 const WAR_START_DATE_MS = Date.parse(WAR_START_ISO);
+const WAR_START_DISPLAY_AR = "25/02/2026";
+const APP_PAGE_KEYS = ["v1", "v2", "xintel"];
+const OFFICIAL_CASUALTY_BASELINES = {
+  uae: {
+    sinceDate: "2026-02-28",
+    asOf: "2026-03-09T00:00:00+04:00",
+    fatalities: 3,
+    injuries: 68,
+    sourceLabel: "UAE Ministry of Defence / WAM",
+  },
+};
 const predictionReviewIntervalOptions = [
   { value: 600, label: "كل 10 دقائق" },
   { value: 1800, label: "كل 30 دقيقة" },
@@ -552,17 +583,30 @@ const threatCountryDefs = [
     lon: 58.3829,
     markers: ["oman", "muscat", "عمان", "مسقط"],
   },
-  {
-    country: "Jordan",
-    country_ar: "الأردن",
-    lat: 31.9539,
-    lon: 35.9106,
-    markers: ["jordan", "الأردن", "عمان الأردن"],
-  },
 ];
 
 const UAE_COUNTRY_MARKERS = ["uae", "united arab emirates", "الإمارات", "الامارات", "emirates"];
 const UAE_IATA_AIRPORT_CODES = new Set(["AUH", "DXB", "DWC", "SHJ", "AAN", "RKT", "FJR", "XNB", "AZI", "OMAA", "OMDB"]);
+const GULF_AIRPORT_CODES_BY_COUNTRY = {
+  UAE: ["AUH", "DXB", "DWC", "SHJ", "AZI", "AAN", "RKT", "FJR", "OMAA", "OMDB", "OMDW", "OMSJ"],
+  "Saudi Arabia": ["RUH", "JED", "DMM", "MED", "AHB", "HAS", "TIF", "ELQ", "ABT", "OERK", "OEJN", "OEDF"],
+  Qatar: ["DOH", "OTHH"],
+  Kuwait: ["KWI", "OKBK"],
+  Bahrain: ["BAH", "OBBI"],
+  Oman: ["MCT", "SLL", "DQM", "KHS", "OOMS", "OOJN"],
+};
+const AIRPORT_LABEL_AR = {
+  AUH: "أبوظبي (AUH)",
+  DXB: "دبي (DXB)",
+  DWC: "دبي ورلد سنترال (DWC)",
+  SHJ: "الشارقة (SHJ)",
+  RUH: "الرياض (RUH)",
+  JED: "جدة (JED)",
+  DOH: "الدوحة (DOH)",
+  KWI: "الكويت (KWI)",
+  BAH: "البحرين (BAH)",
+  MCT: "مسقط (MCT)",
+};
 const THREAT_SIGNAL_MAX_VALUE = 20000;
 const THREAT_SIGNAL_MAX_DIGITS = 6;
 const ICAO_COUNTRY_PREFIX_MAP = {
@@ -596,7 +640,7 @@ const ICAO_COUNTRY_PREFIX_MAP = {
 const threatSignalDefs = [
   {
     key: "ballistic",
-    label: "بالستي",
+    label: "باليستية",
     patterns: [
       /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:من\s+)?(?:ال)?(?:صاروخ|صواريخ|missiles?)\s*(?:ال)?(?:بال(?:ي)?ستي(?:ة)?|ballistic(?:\s+missiles?)?)/giu,
       /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:صاروخ|صواريخ)?\s*(?:بالستي(?:ة)?|ballistic(?:\s+missiles?)?)/giu,
@@ -604,7 +648,7 @@ const threatSignalDefs = [
       /(?:بالستي(?:ة)?|ballistic(?:\s+missiles?)?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)/giu,
       /(?:باليستي(?:ة)?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)/giu,
       /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:اعتراض(?:ات)?|interceptions?)\s*(?:ل|of)?\s*(?:صاروخ(?:ات)?|missiles?|تهديد(?:ات)?\s+جوية)/giu,
-      /(?:اعتراض(?:ات)?|interceptions?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)\s*(?:صاروخ(?:ات)?|missiles?|تهديد(?:ات)?\s+جوية)?/giu,
+      /(?:اعتراض(?:ات)?|interceptions?)\s*[:\-–]?\s*([0-9٠-٩][0-9٠-٩.,]*)\s*(?:من\s+)?(?:ال)?(?:صواريخ?\s+)?(?:بال(?:ي)?ستي(?:ة)?|ballistic(?:\s+missiles?)?)/giu,
     ],
     mentionPatterns: [
       /\bballistic(?:\s+missiles?)?\b/iu,
@@ -612,7 +656,6 @@ const threatSignalDefs = [
       /صاروخ(?:\s+)?باليستي(?:ة)?/u,
       /صواريخ(?:\s+)?بالستية/u,
       /صواريخ(?:\s+)?باليستية/u,
-      /(?:صاروخ|صواريخ|missiles?)/iu,
     ],
   },
   {
@@ -666,6 +709,14 @@ const maritimeZoneDefs = [
 
 const skyVideoSources = [
   {
+    id: "sky-arabia-live",
+    label: "Sky News Arabia",
+    embedUrl:
+      import.meta.env.VITE_SKY_ARABIA_EMBED_URL ||
+      "https://www.youtube.com/embed/U--OjmpjF5o?autoplay=1",
+    watchUrl: "https://www.youtube.com/live/U--OjmpjF5o"
+  },
+  {
     id: "france24-ar",
     label: "France 24 Arabic",
     embedUrl:
@@ -696,29 +747,9 @@ const skyVideoSources = [
       import.meta.env.VITE_ALJAZEERA_AR_EMBED_URL ||
       "https://www.youtube.com/embed/live_stream?channel=UCfiwzLy-8yKzIbsmZTzxDgw&autoplay=1",
     watchUrl: "https://www.youtube.com/channel/UCfiwzLy-8yKzIbsmZTzxDgw/live"
-  },
-  {
-    id: "abudhabi-tv-live",
-    label: "Abu Dhabi TV (قناة أبوظبي)",
-    embedUrl:
-      import.meta.env.VITE_ABUDHABI_TV_EMBED_URL ||
-      "https://www.youtube.com/embed/d5MZBC81zMg?autoplay=1",
-    embedCandidates: [
-      import.meta.env.VITE_ABUDHABI_TV_EMBED_URL || "https://www.youtube.com/embed/d5MZBC81zMg?autoplay=1",
-      "https://www.youtube.com/embed/ntakmDtUNnA?autoplay=1",
-      "https://www.youtube.com/embed/live_stream?channel=UCZ33NIO6rgl291T88-9jreQ&autoplay=1",
-    ],
-    watchUrl: "https://www.youtube.com/watch?v=d5MZBC81zMg"
-  },
-  {
-    id: "sky-arabia-live",
-    label: "Sky News Arabia",
-    embedUrl:
-      import.meta.env.VITE_SKY_ARABIA_EMBED_URL ||
-      "https://www.youtube.com/embed/U--OjmpjF5o?autoplay=1",
-    watchUrl: "https://www.youtube.com/live/U--OjmpjF5o"
   }
 ];
+const DEFAULT_VIDEO_SOURCE_ID = "sky-arabia-live";
 
 function forceUnmutedEmbedUrl(value) {
   if (!value) return "";
@@ -740,6 +771,13 @@ function formatTime(value) {
   const date = parsePossiblyDate(value);
   if (!date) return "غير متاح";
   return date.toLocaleString("ar-AE", { hour12: false, timeZone: "Asia/Dubai" });
+}
+
+function metricValueOrUnavailable(value, unavailable = false) {
+  if (unavailable) return "غير متاح";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "غير متاح";
+  return String(numeric);
 }
 
 function predictionStatusLabel(value) {
@@ -831,17 +869,60 @@ function minutesSince(value) {
   return Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
 }
 
-function freshnessLabel(value) {
-  const mins = minutesSince(value);
-  if (mins <= 3) return "Live";
-  if (mins <= 10) return "10m";
-  if (mins <= 60) return "1h";
-  if (mins <= 180) return "3h";
-  return "3h+";
-}
-
 function sectionToggleLabel(isOpen) {
   return isOpen ? "إخفاء" : "إظهار";
+}
+
+function normalizePageAccessList(values, accessVersion = "v1") {
+  const version = String(accessVersion || "v1").toLowerCase();
+  const selected = new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim().toLowerCase()).filter(Boolean));
+  if (selected.has("xintel")) selected.add("v2");
+  if (selected.has("v2")) selected.add("v1");
+  if (version === "v2") {
+    selected.add("v1");
+    selected.add("v2");
+    selected.add("xintel");
+  } else if (version === "v1") {
+    selected.clear();
+    selected.add("v1");
+  } else if (!selected.size) {
+    selected.add("v1");
+  }
+  return APP_PAGE_KEYS.filter((key) => selected.has(key));
+}
+
+function normalizeCountryKey(value) {
+  return cleanText(value).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function resolveOfficialCasualtyBaseline(countryValue) {
+  const normalized = normalizeCountryKey(countryValue);
+  if (!normalized) return null;
+  const isUae =
+    normalized.includes("uae") ||
+    normalized.includes("united arab emirates") ||
+    normalized.includes("الإمارات") ||
+    normalized.includes("الامارات");
+  if (!isUae) return null;
+  return OFFICIAL_CASUALTY_BASELINES.uae || null;
+}
+
+function formatUiError(err, fallbackMessage) {
+  const fallback = fallbackMessage || "حدث خطأ غير متوقع.";
+  const detail = String(err?.detail || err?.message || "").trim();
+  if (!detail) return fallback;
+  if (/permission\s+for\s+page/i.test(detail)) {
+    return "لا تملك صلاحية الوصول لهذه الصفحة. يرجى التواصل مع مسؤول النظام لتحديث الصلاحيات.";
+  }
+  if (/requires\s+v2\s+access/i.test(detail) || /access denied/i.test(detail)) {
+    return "لا تملك صلاحية الوصول لهذه الميزة. يرجى طلب ترقية الحساب إلى V2.";
+  }
+  if (/انتهت الجلسة|session expired|unauthorized|401/i.test(detail)) {
+    return "انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى.";
+  }
+  const inline = detail.match(/-\s+(.+)$/);
+  const normalized = (inline?.[1] || detail).trim();
+  return normalized || fallback;
 }
 
 function predictionDueAt(ticket) {
@@ -919,9 +1000,9 @@ const FATALITY_COUNT_PATTERNS = [
 ];
 
 const INJURY_COUNT_PATTERNS = [
-  /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:مصاب(?:اً|ا)?|مصابين|إصابات|اصابات|إصابة|اصابة|جرحى|جريح(?:اً|ا)?|injured|injuries|wounded)/giu,
+  /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:مصاب(?:اً|ا)?|مصابين|إصابات|اصابات|إصابة|اصابة|جرحى|جريح(?:اً|ا)?|injured|injuries|wounded|hurt)/giu,
   /(?:إصابات|اصابات|إصابة|اصابة|مصاب(?:ين)?|جرحى|جريح(?:ين)?)\s*(?:[:\-–]?\s*)?([0-9٠-٩][0-9٠-٩.,]*)/giu,
-  /(?:injured|injuries|wounded)\s*(?:[:\-–]?\s*)?([0-9٠-٩][0-9٠-٩.,]*)/giu,
+  /(?:injured|injuries|wounded|hurt)\s*(?:[:\-–]?\s*)?([0-9٠-٩][0-9٠-٩.,]*)/giu,
 ];
 
 const FATALITY_ZERO_PATTERNS = [
@@ -931,11 +1012,28 @@ const FATALITY_ZERO_PATTERNS = [
 
 const INJURY_ZERO_PATTERNS = [
   /(?:لا توجد|لا يوجد)\s+(?:أي\s+)?(?:إصابات|اصابات|جرحى|مصابين)/iu,
-  /(?:no|zero|without)\s+(?:confirmed\s+)?(?:injuries|injured|wounded)/iu,
+  /(?:no|zero|without)\s+(?:confirmed\s+)?(?:injuries|injured|wounded|hurt)/iu,
 ];
 
 const FATALITY_SIGNAL_PATTERN = /(?:قتيل|قتلى|وفيات|وفاة|ضحايا|مصرع|استشهاد|متوف(?:ى|ين|ون)?|killed|dead|deaths?|fatalit(?:y|ies))/iu;
-const INJURY_SIGNAL_PATTERN = /(?:مصاب(?:اً|ا)?|مصابين|إصابات|اصابات|إصابة|اصابة|جرحى|جريح(?:اً|ا)?|injured|injuries|wounded)/iu;
+const INJURY_SIGNAL_PATTERN = /(?:مصاب(?:اً|ا)?|مصابين|إصابات|اصابات|إصابة|اصابة|جرحى|جريح(?:اً|ا)?|injured|injuries|wounded|hurt)/iu;
+const FATALITY_SINGULAR_PATTERNS = [
+  /(?:^|[\s:،,؛\-])(?:وفاة|مقتل|مصرع|استشهاد|قتل)(?:$|[\s:،,؛\-])/iu,
+  /(?:\bone\b|\ba\b)\s+(?:person|resident|civilian|worker)\s+(?:was\s+)?(?:killed|dead)/iu,
+  /\b(?:motorist|driver|resident|civilian|person|worker|child|man|woman)\b(?:[^.!?\n]{0,40})\b(?:killed|dead|died)\b/iu,
+];
+const INJURY_SINGULAR_PATTERNS = [
+  /(?:^|[\s:،,؛\-])(?:إصابة|اصابة|مصاب|جريح)(?:$|[\s:،,؛\-])/iu,
+  /(?:\bone\b|\ba\b)\s+(?:person|resident|civilian|worker)\s+(?:was\s+)?(?:injured|wounded)/iu,
+  /\b(?:motorist|driver|resident|civilian|person|worker|child|man|woman)\b(?:[^.!?\n]{0,40})\b(?:injured|wounded|hurt)\b/iu,
+];
+const CASUALTY_CUMULATIVE_HINT_PATTERN =
+  /(?:since\s+(?:start|beginning)|so\s*far|to\s*date|cumulative|overall|total|tally|from\s+start|from\s+the\s+start|death\s+toll|toll|climbs?\s+to|rises?\s+to|منذ\s+(?:بدء|بداية)|حتى\s+الآن|إجمالي|اجمالي|حصيلة|محصلة|تراكمي|من\s+أصل|من\s+اصل|(?:الحصيلة|محصلة)\s*(?:إلى|الى)|ارتفع(?:ت)?\s+(?:حصيلة|عدد))/iu;
+
+const mixedMissileDroneTotalPatterns = [
+  /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:من\s+)?(?:ال)?(?:صاروخ|صواريخ|missiles?)\s*(?:و|and|&)\s*(?:مسي(?:ّ)?(?:رة|رات)|مسيرة|مسيرات|درون(?:ات)?|drones?|uavs?)/giu,
+  /([0-9٠-٩][0-9٠-٩.,]*)\s*(?:من\s+)?(?:ال)?(?:مسي(?:ّ)?(?:رة|رات)|مسيرة|مسيرات|درون(?:ات)?|drones?|uavs?)\s*(?:و|and|&)\s*(?:صاروخ|صواريخ|missiles?)/giu,
+];
 
 const EN_NUMBER_WORDS = {
   zero: "0",
@@ -1190,6 +1288,75 @@ function extractSignalMaxFromText(text, patterns, parseOptions = {}) {
   return max;
 }
 
+function stripOcrTokensFromDetails(details) {
+  const parts = String(details || "")
+    .split("|")
+    .map((part) => cleanText(part))
+    .filter(Boolean);
+  return parts
+    .filter((part) => !/^ocr_/i.test(part))
+    .join(" ");
+}
+
+function hasThreatKeyword(text) {
+  const source = normalizeNumericText(text || "");
+  if (!source) return false;
+  return /(?:missile|missiles|ballistic|cruise|drone|drones|uav|uavs|intercept|air defense|صاروخ|صواريخ|باليست|بالست|كروز|مسي(?:ّ)?(?:رة|رات)|مسيرة|مسيرات|درون|اعتراض|دفاع جوي)/iu.test(
+    source
+  );
+}
+
+function hasSignalSpecificKeyword(text, signalKey) {
+  const source = normalizeNumericText(text || "");
+  if (!source) return false;
+  if (signalKey === "ballistic") return /(?:ballistic|باليست|بالست)/iu.test(source);
+  if (signalKey === "cruise") return /(?:cruise|كروز|مجنح|مجنّح)/iu.test(source);
+  if (signalKey === "drones") return /(?:drones?|uavs?|مسي(?:ّ)?(?:رة|رات)|مسيرة|مسيرات|درون(?:ات)?)/iu.test(source);
+  return false;
+}
+
+function containsMixedMissileDroneTotal(text, expectedValue, parseOptions = {}) {
+  const source = normalizeNumericText(text || "");
+  if (!source || expectedValue == null) return false;
+  for (const pattern of mixedMissileDroneTotalPatterns) {
+    let match = pattern.exec(source);
+    while (match) {
+      const parsed = parseLocalizedInteger(match[1], parseOptions);
+      if (parsed != null && parsed === expectedValue) {
+        pattern.lastIndex = 0;
+        return true;
+      }
+      match = pattern.exec(source);
+    }
+    pattern.lastIndex = 0;
+  }
+  return false;
+}
+
+function extractOcrSignalMaxFromDetails(details, signalKey, contextText = "", parseOptions = {}) {
+  if (!hasThreatKeyword(contextText)) return null;
+  const map = new Map(parseDetailsTokens(details));
+  if (map.size === 0) return null;
+  const primaryKeyMap = {
+    ballistic: "ocr_ballistic_detected",
+    cruise: "ocr_cruise_detected",
+    drones: "ocr_drones_detected",
+  };
+  const fallbackKeyMap = {
+    ballistic: "ocr_ballistic_intercepted",
+    cruise: "ocr_cruise_intercepted",
+    drones: "ocr_drones_intercepted",
+  };
+  const primaryValue = parseLocalizedInteger(map.get(primaryKeyMap[signalKey]), parseOptions);
+  const fallbackValue = parseLocalizedInteger(map.get(fallbackKeyMap[signalKey]), parseOptions);
+  const value = primaryValue ?? fallbackValue;
+  if (value == null) return null;
+  if ((signalKey === "ballistic" || signalKey === "cruise") && containsMixedMissileDroneTotal(contextText, value, parseOptions)) {
+    if (!hasSignalSpecificKeyword(contextText, signalKey)) return null;
+  }
+  return value;
+}
+
 function hasSignalMention(text, mentionPatterns = []) {
   const source = normalizeNumericText(text || "");
   if (!source) return false;
@@ -1254,10 +1421,14 @@ function isFlightIntelLike(row) {
 
 function isThreatIntelLike(row) {
   if (!row) return false;
-  const text = eventText(row);
-  return /(missile|missiles|ballistic|cruise|drone|drones|uav|uavs|intercept|air defense|صاروخ|صواريخ|باليست|بالست|كروز|مسي(?:ّ)?(?:رة|رات)|مسيرة|مسيرات|درون|اعتراض|دفاع جوي)/.test(
-    text
-  );
+  const text = cleanText([
+    row?.title,
+    row?.summary,
+    stripOcrTokensFromDetails(row?.details),
+    row?.ai_assessment,
+    row?.tags,
+  ].filter(Boolean).join(" ")).toLowerCase();
+  return hasThreatKeyword(text);
 }
 
 function inferThreatSignalKind(text) {
@@ -1317,8 +1488,7 @@ function sourceHostLooksOfficial(urlValue) {
       host.endsWith("opensky-network.org") ||
       host.endsWith("api.jsoncargo.com") ||
       host.endsWith("jsoncargo.com") ||
-      host.endsWith("marinetraffic.com") ||
-      host.endsWith("x.com")
+      host.endsWith("marinetraffic.com")
     );
   } catch {
     return false;
@@ -1450,6 +1620,25 @@ function hasScopedExplicitZero(text, markers, zeroPatterns) {
   return false;
 }
 
+function hasScopedPattern(text, markers, patterns) {
+  const chunks = sentenceChunks(text);
+  for (const chunk of chunks) {
+    if (!chunkMatchesCountry(chunk, markers)) continue;
+    for (const pattern of patterns) {
+      pattern.lastIndex = 0;
+      if (pattern.test(chunk)) return true;
+    }
+  }
+  return false;
+}
+
+function isCumulativeCasualtyStatement(text) {
+  const source = normalizeNumericText(text || "");
+  if (!source) return false;
+  if (!CASUALTY_CUMULATIVE_HINT_PATTERN.test(source)) return false;
+  return FATALITY_SIGNAL_PATTERN.test(source) || INJURY_SIGNAL_PATTERN.test(source);
+}
+
 function countryAffinity(row, markers) {
   if (!markers?.length) return { any: true, strong: true };
   const detailsMap = new Map(parseDetailsTokens(row?.details));
@@ -1470,7 +1659,7 @@ function countryAffinity(row, markers) {
       .join(" ")
   ).toLowerCase();
   const headlineText = cleanText([row?.title, row?.summary].filter(Boolean).join(" ")).toLowerCase();
-  const fullText = eventText(row);
+  const fullText = cleanText([row?.title, row?.summary, row?.details, row?.ai_assessment, row?.tags].filter(Boolean).join(" ")).toLowerCase();
   const inLocation = markers.some((marker) => marker && locationText.includes(marker));
   const inHeadline = markers.some((marker) => marker && headlineText.includes(marker));
   const inAnyText = markers.some((marker) => marker && fullText.includes(marker));
@@ -1483,28 +1672,62 @@ function countryAffinity(row, markers) {
 function deriveFatalityStats(events, workspace) {
   const range = resolveAnalysisDateRange(workspace);
   const markers = buildCountryMarkers(workspace?.country);
-  const perStoryFatalityMax = new Map();
-  const perStoryInjuryMax = new Map();
-  const perStoryFatalityTrustedMax = new Map();
-  const perStoryInjuryTrustedMax = new Map();
+  const perStoryFatalityIncident = new Map();
+  const perStoryInjuryIncident = new Map();
+  const perStoryFatalityIncidentTime = new Map();
+  const perStoryInjuryIncidentTime = new Map();
+  let fatalityCumulativeOfficial = null;
+  let injuryCumulativeOfficial = null;
   let explicitFatalityZero = false;
   let explicitInjuryZero = false;
   let scanned = 0;
   let trustedScanned = 0;
+
+  const toTimeMs = (row) => {
+    const parsed = parsePossiblyDate(eventDisplayTime(row));
+    return parsed ? parsed.getTime() : 0;
+  };
+
+  const updateLatest = (current, value, timeMs, quality) => {
+    if (value == null) return current;
+    if (!current) return { value, timeMs, quality };
+    if (timeMs > current.timeMs) return { value, timeMs, quality };
+    if (timeMs === current.timeMs && value > current.value) return { value, timeMs, quality };
+    return current;
+  };
+
+  const updateIncident = (valueMap, timeMap, storyKey, value, timeMs) => {
+    if (value == null) return;
+    const current = valueMap.get(storyKey) || 0;
+    if (value > current) valueMap.set(storyKey, value);
+    const currentTime = timeMap.get(storyKey) || 0;
+    if (timeMs > currentTime) timeMap.set(storyKey, timeMs);
+  };
+
   for (const row of events || []) {
     if (!eventInsideRange(row, range)) continue;
     const affinity = countryAffinity(row, markers);
     if (!affinity.any) continue;
     scanned += 1;
-    const trusted = isTrustedEvent(row);
-    if (trusted) trustedScanned += 1;
+    const official = isOfficialOpsEvidence(row);
+    if (!official) continue;
+    trustedScanned += 1;
     const text = [row?.title, row?.summary, row?.details, row?.ai_assessment].filter(Boolean).join(" ");
     if (!text) continue;
     const storyKey = normalizeStoryTitle(row?.title) || `event-${row?.id || scanned}`;
     const detailsMap = new Map(parseDetailsTokens(row?.details));
     const scopedFatality = extractScopedSignalMax(text, markers, FATALITY_COUNT_PATTERNS, FATALITY_SIGNAL_PATTERN);
     const scopedInjury = extractScopedSignalMax(text, markers, INJURY_COUNT_PATTERNS, INJURY_SIGNAL_PATTERN);
-    const detailsFatality = extractDirectSignalFromDetails(detailsMap, [
+    const detailsFatality = extractDirectSignalFromDetails(detailsMap, official ? [
+      "fatalities",
+      "deaths",
+      "killed",
+      "dead",
+      "casualties_fatalities",
+      "confirmed_deaths",
+      "ocr_fatalities",
+      "ocr_deaths",
+    ] : [
       "fatalities",
       "deaths",
       "killed",
@@ -1512,7 +1735,14 @@ function deriveFatalityStats(events, workspace) {
       "casualties_fatalities",
       "confirmed_deaths",
     ]);
-    const detailsInjury = extractDirectSignalFromDetails(detailsMap, [
+    const detailsInjury = extractDirectSignalFromDetails(detailsMap, official ? [
+      "injuries",
+      "injured",
+      "wounded",
+      "casualties_injured",
+      "confirmed_injuries",
+      "ocr_injuries",
+    ] : [
       "injuries",
       "injured",
       "wounded",
@@ -1544,38 +1774,110 @@ function deriveFatalityStats(events, workspace) {
       explicitInjuryZero = true;
     }
 
+    const rowTimeMs = toTimeMs(row);
+    const cumulative = isCumulativeCasualtyStatement(text);
+
     if (rowFatalityMax != null) {
-      const current = perStoryFatalityMax.get(storyKey) || 0;
-      if (rowFatalityMax > current) perStoryFatalityMax.set(storyKey, rowFatalityMax);
-      if (trusted) {
-        const currentTrusted = perStoryFatalityTrustedMax.get(storyKey) || 0;
-        if (rowFatalityMax > currentTrusted) perStoryFatalityTrustedMax.set(storyKey, rowFatalityMax);
+      if (cumulative) {
+        if (official) fatalityCumulativeOfficial = updateLatest(fatalityCumulativeOfficial, rowFatalityMax, rowTimeMs, "official");
+      } else {
+        updateIncident(perStoryFatalityIncident, perStoryFatalityIncidentTime, storyKey, rowFatalityMax, rowTimeMs);
       }
+    } else if (!explicitFatalityZero && (affinity.strong || !markers.length) && hasScopedPattern(text, markers, FATALITY_SINGULAR_PATTERNS)) {
+      updateIncident(perStoryFatalityIncident, perStoryFatalityIncidentTime, storyKey, 1, rowTimeMs);
     }
+
     if (rowInjuryMax != null) {
-      const current = perStoryInjuryMax.get(storyKey) || 0;
-      if (rowInjuryMax > current) perStoryInjuryMax.set(storyKey, rowInjuryMax);
-      if (trusted) {
-        const currentTrusted = perStoryInjuryTrustedMax.get(storyKey) || 0;
-        if (rowInjuryMax > currentTrusted) perStoryInjuryTrustedMax.set(storyKey, rowInjuryMax);
+      if (cumulative) {
+        if (official) injuryCumulativeOfficial = updateLatest(injuryCumulativeOfficial, rowInjuryMax, rowTimeMs, "official");
+      } else {
+        updateIncident(perStoryInjuryIncident, perStoryInjuryIncidentTime, storyKey, rowInjuryMax, rowTimeMs);
       }
+    } else if (!explicitInjuryZero && (affinity.strong || !markers.length) && hasScopedPattern(text, markers, INJURY_SINGULAR_PATTERNS)) {
+      updateIncident(perStoryInjuryIncident, perStoryInjuryIncidentTime, storyKey, 1, rowTimeMs);
     }
   }
-  const confirmedTrusted = perStoryFatalityTrustedMax.size > 0 ? Math.max(...perStoryFatalityTrustedMax.values()) : null;
-  const confirmedAny = perStoryFatalityMax.size > 0 ? Math.max(...perStoryFatalityMax.values()) : null;
-  const injuredTrusted = perStoryInjuryTrustedMax.size > 0 ? Math.max(...perStoryInjuryTrustedMax.values()) : null;
-  const injuredAny = perStoryInjuryMax.size > 0 ? Math.max(...perStoryInjuryMax.values()) : null;
-  const confirmed = confirmedTrusted ?? confirmedAny;
-  const injured = injuredTrusted ?? injuredAny;
+
+  const fatalityBaseRecord = fatalityCumulativeOfficial;
+  const injuryBaseRecord = injuryCumulativeOfficial;
+  const fatalityBase = fatalityBaseRecord?.value || 0;
+  const injuryBase = injuryBaseRecord?.value || 0;
+  const fatalityBaseTime = fatalityBaseRecord?.timeMs ?? Number.NEGATIVE_INFINITY;
+  const injuryBaseTime = injuryBaseRecord?.timeMs ?? Number.NEGATIVE_INFINITY;
+
+  const fatalityIncidents = [...perStoryFatalityIncident.entries()].reduce((sum, [storyKey, value]) => {
+    const rowTime = perStoryFatalityIncidentTime.get(storyKey) || 0;
+    if (fatalityBaseRecord && rowTime <= fatalityBaseTime) return sum;
+    return sum + Math.max(0, Number(value) || 0);
+  }, 0);
+  const injuryIncidents = [...perStoryInjuryIncident.entries()].reduce((sum, [storyKey, value]) => {
+    const rowTime = perStoryInjuryIncidentTime.get(storyKey) || 0;
+    if (injuryBaseRecord && rowTime <= injuryBaseTime) return sum;
+    return sum + Math.max(0, Number(value) || 0);
+  }, 0);
+  const fatalityIncidentMax = [...perStoryFatalityIncident.entries()].reduce((max, [storyKey, value]) => {
+    const rowTime = perStoryFatalityIncidentTime.get(storyKey) || 0;
+    if (fatalityBaseRecord && rowTime <= fatalityBaseTime) return max;
+    const safe = Math.max(0, Number(value) || 0);
+    return Math.max(max, safe);
+  }, 0);
+  const injuryIncidentMax = [...perStoryInjuryIncident.entries()].reduce((max, [storyKey, value]) => {
+    const rowTime = perStoryInjuryIncidentTime.get(storyKey) || 0;
+    if (injuryBaseRecord && rowTime <= injuryBaseTime) return max;
+    const safe = Math.max(0, Number(value) || 0);
+    return Math.max(max, safe);
+  }, 0);
+  const fatalityIncidentMaxTime = [...perStoryFatalityIncidentTime.values()].reduce((max, value) => Math.max(max, Number(value) || 0), 0);
+  const injuryIncidentMaxTime = [...perStoryInjuryIncidentTime.values()].reduce((max, value) => Math.max(max, Number(value) || 0), 0);
+
+  // If we have a cumulative base figure (official/trusted/latest), use it directly.
+  // Adding incident rows on top of cumulative statements causes double counting.
+  const confirmedTotal = fatalityBaseRecord ? fatalityBase : fatalityIncidentMax;
+  const injuredTotal = injuryBaseRecord ? injuryBase : injuryIncidentMax;
+  let confirmed = confirmedTotal > 0 ? confirmedTotal : null;
+  let injured = injuredTotal > 0 ? injuredTotal : null;
+  let confirmedUpdatedAt = fatalityBaseRecord
+    ? new Date(fatalityBaseRecord.timeMs).toISOString()
+    : fatalityIncidentMaxTime > 0
+      ? new Date(fatalityIncidentMaxTime).toISOString()
+      : null;
+  let injuredUpdatedAt = injuryBaseRecord
+    ? new Date(injuryBaseRecord.timeMs).toISOString()
+    : injuryIncidentMaxTime > 0
+      ? new Date(injuryIncidentMaxTime).toISOString()
+      : null;
+  let sourceLabel = fatalityBaseRecord || injuryBaseRecord ? "مصادر رسمية" : "لا يوجد رقم رسمي مؤكد";
+  let sinceDate = range?.from || null;
+  const officialBaseline = resolveOfficialCasualtyBaseline(workspace?.country);
+  if (officialBaseline) {
+    confirmed = Number.isFinite(Number(officialBaseline.fatalities)) ? Number(officialBaseline.fatalities) : confirmed;
+    injured = Number.isFinite(Number(officialBaseline.injuries)) ? Number(officialBaseline.injuries) : injured;
+    const baselineAsOf = officialBaseline.asOf || (officialBaseline.sinceDate ? `${officialBaseline.sinceDate}T00:00:00+04:00` : null);
+    confirmedUpdatedAt = baselineAsOf || confirmedUpdatedAt;
+    injuredUpdatedAt = baselineAsOf || injuredUpdatedAt;
+    sourceLabel = officialBaseline.sourceLabel || sourceLabel;
+    sinceDate = officialBaseline.sinceDate || sinceDate;
+  }
+
   return {
     confirmed,
     injured,
-    confirmedSourceQuality: confirmedTrusted != null ? "trusted" : confirmedAny != null ? "mixed" : "none",
-    injuredSourceQuality: injuredTrusted != null ? "trusted" : injuredAny != null ? "mixed" : "none",
+    confirmedSourceQuality: fatalityBaseRecord?.quality || (confirmed != null ? "official" : "none"),
+    injuredSourceQuality: injuryBaseRecord?.quality || (injured != null ? "official" : "none"),
+    confirmedUpdatedAt,
+    injuredUpdatedAt,
     explicitFatalityZero,
     explicitInjuryZero,
     scanned,
     trustedScanned,
+    confirmedBase: fatalityBaseRecord?.value ?? null,
+    confirmedIncidents: fatalityIncidents,
+    injuredBase: injuryBaseRecord?.value ?? null,
+    injuredIncidents: injuryIncidents,
+    sourceLabel,
+    sinceDate,
+    metricScope: "casualties_official_cumulative",
+    asOfTimestamp: confirmedUpdatedAt || injuredUpdatedAt || null,
   };
 }
 
@@ -1583,63 +1885,74 @@ function buildFatalityAutoLine(workspace, fatalityStats) {
   const safeCountry = String(workspace?.country || "الدولة المستهدفة").trim() || "الدولة المستهدفة";
   const rangeLabel = analysisDateRangeLabel(workspace);
   if (fatalityStats?.confirmed != null) {
-    return `حصيلة الوفيات المؤكدة في ${safeCountry} ${rangeLabel}: ${fatalityStats.confirmed}.`;
+    const updatedSuffix = fatalityStats?.confirmedUpdatedAt ? ` | آخر تحديث: ${formatTime(fatalityStats.confirmedUpdatedAt)}` : "";
+    const sourceSuffix = fatalityStats?.sourceLabel ? ` | المصدر: ${fatalityStats.sourceLabel}` : "";
+    return `حصيلة الوفيات المؤكدة رسميًا في ${safeCountry} ${rangeLabel}: ${fatalityStats.confirmed}${updatedSuffix}${sourceSuffix}.`;
   }
   if (fatalityStats?.explicitFatalityZero) {
-    return `لا توجد وفيات مؤكدة في ${safeCountry} ${rangeLabel} وفق المصادر المتاحة.`;
+    return `لا توجد وفيات مؤكدة رسميًا في ${safeCountry} ${rangeLabel} وفق المصادر الرسمية المتاحة.`;
   }
-  return `حصيلة الوفيات المؤكدة في ${safeCountry} ${rangeLabel}: غير متاحة حالياً.`;
+  return `حصيلة الوفيات المؤكدة رسميًا في ${safeCountry} ${rangeLabel}: غير متاحة حاليًا.`;
 }
 
 function buildInjuryAutoLine(workspace, fatalityStats) {
   const safeCountry = String(workspace?.country || "الدولة المستهدفة").trim() || "الدولة المستهدفة";
   const rangeLabel = analysisDateRangeLabel(workspace);
   if (fatalityStats?.injured != null) {
-    return `حصيلة الإصابات المؤكدة في ${safeCountry} ${rangeLabel}: ${fatalityStats.injured}.`;
+    const updatedSuffix = fatalityStats?.injuredUpdatedAt ? ` | آخر تحديث: ${formatTime(fatalityStats.injuredUpdatedAt)}` : "";
+    const sourceSuffix = fatalityStats?.sourceLabel ? ` | المصدر: ${fatalityStats.sourceLabel}` : "";
+    return `حصيلة الإصابات المؤكدة رسميًا في ${safeCountry} ${rangeLabel}: ${fatalityStats.injured}${updatedSuffix}${sourceSuffix}.`;
   }
   if (fatalityStats?.explicitInjuryZero) {
-    return `لا توجد إصابات مؤكدة في ${safeCountry} ${rangeLabel} وفق المصادر المتاحة.`;
+    return `لا توجد إصابات مؤكدة رسميًا في ${safeCountry} ${rangeLabel} وفق المصادر الرسمية المتاحة.`;
   }
-  return `حصيلة الإصابات المؤكدة في ${safeCountry} ${rangeLabel}: غير متاحة في المصادر الحالية.`;
+  return `حصيلة الإصابات المؤكدة رسميًا في ${safeCountry} ${rangeLabel}: غير متاحة في المصادر الحالية.`;
 }
 
 function buildFlightOpsSnapshotLine(rows, workspace) {
   const range = resolveAnalysisDateRange(workspace);
-  const markers = buildCountryMarkers(workspace?.country);
-  const flights = (rows || [])
-    .filter((row) => row?.source_type === "flight" && eventInsideRange(row, range))
-    .filter((row) => rowMatchesCountryMarkersForOps(row, markers));
-  if (flights.length === 0) {
+  const countryName = normalizeTransportValue(workspace?.country) || "UAE";
+  const selectedCountryDef = threatCountryDefs.find((row) => cleanText(row.country).toLowerCase() === cleanText(countryName).toLowerCase()) || {
+    country: countryName,
+    country_ar: countryName,
+    markers: buildCountryMarkers(countryName),
+  };
+  const markers = selectedCountryDef.markers || buildCountryMarkers(countryName);
+  const scopedRows = (rows || []).filter((row) => row?.source_type === "flight" && eventInsideRange(row, range));
+  const operationalRecords = buildOperationalFlightRecords(scopedRows, selectedCountryDef, markers, { bucketMinutes: 10 });
+  if (operationalRecords.length === 0) {
     return "مؤشرات حركة الطيران المرتبطة بالدولة: لا توجد بيانات كافية ضمن نافذة التحليل.";
   }
-  const touchesCountry = (value) => {
-    const text = cleanText(value).toLowerCase();
-    if (!text) return false;
-    return markers.some((marker) => marker && text.includes(marker));
-  };
-  let inbound = 0;
-  let outbound = 0;
-  let domestic = 0;
-  const routeCounts = new Map();
-  for (const row of flights) {
-    const t = parseTransportContext(row);
-    const fromCountry = normalizeTransportValue(t.fromCountry);
-    const toCountry = normalizeTransportValue(t.toCountry);
-    const fromMatch = touchesCountry(fromCountry);
-    const toMatch = touchesCountry(toCountry);
-    if (fromMatch && toMatch) domestic += 1;
-    else if (toMatch) inbound += 1;
-    else if (fromMatch) outbound += 1;
-    const routeKey = `${routeArrowSummary(fromCountry || t.fromPort, toCountry || t.toPort)}`;
-    routeCounts.set(routeKey, (routeCounts.get(routeKey) || 0) + 1);
+  const summary = summarizeOperationalFlightRecords(operationalRecords, countryAirportPriority(selectedCountryDef.country));
+  const topRoutesMap = new Map();
+  for (const row of operationalRecords) {
+    const route = routeArrowSummary(row.fromPort || row.fromCountry, row.toPort || row.toCountry);
+    topRoutesMap.set(route, (topRoutesMap.get(route) || 0) + 1);
   }
-  const topRoutes = [...routeCounts.entries()]
+  const topRoutes = [...topRoutesMap.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 2)
     .map(([route, count]) => `${route} (${count})`);
-  return `مؤشرات حركة الطيران المرتبطة بالدولة: إجمالي ${flights.length} | وارد ${inbound} | صادر ${outbound} | داخلي ${domestic}${
-    topRoutes.length ? ` | أبرز المسارات: ${topRoutes.join(" ، ")}` : ""
-  }.`;
+  const todayKey = toDubaiDayKey(Date.now());
+  const todayRecords = operationalRecords.filter((row) => row.dayKey === todayKey);
+  const historyByDay = new Map();
+  for (const row of operationalRecords) {
+    if (!row.dayKey || row.dayKey === todayKey) continue;
+    historyByDay.set(row.dayKey, (historyByDay.get(row.dayKey) || 0) + 1);
+  }
+  const baselineSamples = [...historyByDay.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .slice(0, 7)
+    .map(([, value]) => value);
+  const baseline = baselineSamples.length ? baselineSamples.reduce((sum, value) => sum + value, 0) / baselineSamples.length : 0;
+  const impact = buildFlightImpactSummary(todayRecords.length, baseline);
+  const topAirports = summary.airportBreakdown
+    .slice(0, 2)
+    .map((item) => `${AIRPORT_LABEL_AR[item.airport] || item.airport}: وارد ${item.inbound} | صادر ${item.outbound} | داخلي ${item.domestic}`)
+    .join(" ، ");
+  return `مؤشرات حركة الطيران المرتبطة بالدولة: إجمالي ${summary.total} | وارد ${summary.inbound} | صادر ${summary.outbound} | داخلي ${summary.domestic} | غير مصنف ${summary.unknown} | اليوم ${todayRecords.length} | مؤشر الأثر: ${impact.label}${
+    topAirports ? ` | مطارات بارزة: ${topAirports}` : ""
+  }${topRoutes.length ? ` | أبرز المسارات: ${topRoutes.join(" ، ")}` : ""}.`;
 }
 
 function buildTransportIntelSummary(rows, workspace) {
@@ -2101,7 +2414,7 @@ function makePredictionWorkspace(id, index) {
     id,
     label: `مساحة ${index}`,
     country: "الإمارات",
-    analysisDateFrom: "",
+    analysisDateFrom: "2026-02-25",
     topic: "التصعيد في الخليج",
     predictionTitle: "توقع تشغيلي",
     predictionFocus: "الحرب في الخليج مع تركيز الإمارات",
@@ -2391,6 +2704,259 @@ function isUaeIcaoCode(value) {
   return code.startsWith("OM");
 }
 
+function normalizeAirportCode(value) {
+  const raw = normalizeTransportValue(value).toUpperCase();
+  if (!raw) return "";
+  const tokens = raw.match(/\b[A-Z0-9]{3,4}\b/g) || [];
+  if (!tokens.length) return "";
+  const iata = tokens.find((token) => token.length === 3);
+  return iata || tokens[0];
+}
+
+function countryAirportCodeSet(country) {
+  const key = normalizeTransportValue(country);
+  const codes = GULF_AIRPORT_CODES_BY_COUNTRY[key] || [];
+  return new Set(codes.map((code) => normalizeTransportValue(code).toUpperCase()).filter(Boolean));
+}
+
+function countryAirportPriority(country) {
+  const key = normalizeTransportValue(country);
+  return (GULF_AIRPORT_CODES_BY_COUNTRY[key] || []).map((code) => normalizeTransportValue(code).toUpperCase()).filter(Boolean);
+}
+
+function toDubaiDayKey(value) {
+  const parsed = parsePossiblyDate(value);
+  if (!parsed) return "";
+  return parsed.toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
+}
+
+function classifyFlightDirectionByCountry(fields, selectedMarkers, selectedCountry, selectedAirportCodes) {
+  const markers = (selectedMarkers || []).map((marker) => cleanText(marker).toLowerCase()).filter(Boolean);
+  const matchesByMarkers = (value) => {
+    const text = normalizeTransportValue(value).toLowerCase();
+    if (!text || !markers.length) return false;
+    return markers.some((marker) => marker && text.includes(marker));
+  };
+  const fromPortCode = normalizeAirportCode(fields.fromPort || fields.origIata || fields.origIcao);
+  const toPortCode = normalizeAirportCode(fields.toPort || fields.destIata || fields.destIcao);
+  const fromCountryInferred = normalizeTransportValue(fields.fromCountry) || inferCountryFromIcaoCode(fields.origIcao) || "";
+  const toCountryInferred = normalizeTransportValue(fields.toCountry) || inferCountryFromIcaoCode(fields.destIcao) || "";
+  const fromSelected = matchesByMarkers(fromCountryInferred) || (fromPortCode && selectedAirportCodes.has(fromPortCode));
+  const toSelected = matchesByMarkers(toCountryInferred) || (toPortCode && selectedAirportCodes.has(toPortCode));
+  let direction = "";
+  if (fromSelected && toSelected) direction = "domestic";
+  else if (toSelected) direction = "inbound";
+  else if (fromSelected) direction = "outbound";
+  if (!direction) return null;
+  return {
+    direction,
+    fromSelected,
+    toSelected,
+    fromCountry: fromCountryInferred,
+    toCountry: toCountryInferred,
+    fromPortCode,
+    toPortCode,
+    selectedCountry: normalizeTransportValue(selectedCountry),
+  };
+}
+
+function buildOperationalFlightRecords(rows, selectedCountryDef, selectedMarkers, options = {}) {
+  const bucketMinutes = Math.max(1, Number(options.bucketMinutes || 10));
+  const bucketMs = bucketMinutes * 60 * 1000;
+  const selectedCountry = normalizeTransportValue(selectedCountryDef?.country);
+  const selectedAirportCodes = countryAirportCodeSet(selectedCountry);
+  const deduped = new Map();
+  for (const row of rows || []) {
+    if (!row || row.source_type !== "flight") continue;
+    const ts = parsePossiblyDate(eventDisplayTime(row));
+    if (!ts) continue;
+    const detailsMap = new Map(parseDetailsTokens(row.details));
+    const callsign = normalizeTransportValue(detailsMap.get("callsign") || detailsMap.get("flight_id") || detailsMap.get("icao24"));
+    const origIata = normalizeTransportValue(detailsMap.get("orig_iata") || detailsMap.get("origin_iata"));
+    const destIata = normalizeTransportValue(detailsMap.get("dest_iata") || detailsMap.get("destination_iata"));
+    const origIcao = normalizeTransportValue(detailsMap.get("orig_icao") || detailsMap.get("origin_icao"));
+    const destIcao = normalizeTransportValue(detailsMap.get("dest_icao") || detailsMap.get("destination_icao"));
+    const fromPort = normalizeTransportValue(detailsMap.get("from_port") || detailsMap.get("origin")) || origIata || origIcao;
+    const toPort = normalizeTransportValue(detailsMap.get("to_port") || detailsMap.get("destination")) || destIata || destIcao;
+    const fromCountry = normalizeTransportValue(detailsMap.get("from_country") || detailsMap.get("origin_country"));
+    const toCountry = normalizeTransportValue(detailsMap.get("to_country") || detailsMap.get("destination_country"));
+    const fields = {
+      fromPort,
+      toPort,
+      fromCountry,
+      toCountry,
+      origIata,
+      destIata,
+      origIcao,
+      destIcao,
+    };
+    let directionInfo = classifyFlightDirectionByCountry(fields, selectedMarkers, selectedCountry, selectedAirportCodes);
+    if (!directionInfo) {
+      const coords = sanitizeLatLon(
+        row.latitude ?? parseLooseNumber(detailsMap.get("lat") || detailsMap.get("latitude")),
+        row.longitude ?? parseLooseNumber(detailsMap.get("lon") || detailsMap.get("longitude") || detailsMap.get("lng"))
+      );
+      const anchorLat = Number(selectedCountryDef?.lat);
+      const anchorLon = Number(selectedCountryDef?.lon);
+      const heading = parseLooseNumber(detailsMap.get("heading") || detailsMap.get("track_deg") || detailsMap.get("track"));
+      if (coords && Number.isFinite(anchorLat) && Number.isFinite(anchorLon) && geoDistanceKm(coords.lat, coords.lon, anchorLat, anchorLon) <= 520) {
+        const headingToward = headingTowardTarget(heading, coords.lat, coords.lon, anchorLat, anchorLon, 95);
+        const inferredDirection = headingToward === true ? "inbound" : headingToward === false ? "outbound" : "domestic";
+        directionInfo = {
+          direction: inferredDirection,
+          fromSelected: inferredDirection !== "inbound",
+          toSelected: inferredDirection !== "outbound",
+          fromCountry: inferredDirection === "inbound" ? "" : selectedCountry,
+          toCountry: inferredDirection === "outbound" ? "" : selectedCountry,
+          fromPortCode: "",
+          toPortCode: "",
+          selectedCountry,
+        };
+      }
+    }
+    if (!directionInfo) {
+      directionInfo = {
+        direction: "unknown",
+        fromSelected: false,
+        toSelected: false,
+        fromCountry: normalizeTransportValue(fromCountry) || "",
+        toCountry: normalizeTransportValue(toCountry) || "",
+        fromPortCode: normalizeAirportCode(fromPort || origIata || origIcao),
+        toPortCode: normalizeAirportCode(toPort || destIata || destIcao),
+        selectedCountry,
+      };
+    }
+    const fromCode = directionInfo.fromPortCode || "NA";
+    const toCode = directionInfo.toPortCode || "NA";
+    const stableKey = cleanText(callsign || row.external_id || row.id || row.title || "flight").toUpperCase();
+    const bucketStart = Math.floor(ts.getTime() / bucketMs) * bucketMs;
+    const dedupeKey = [stableKey, directionInfo.direction, fromCode, toCode, bucketStart].join("|");
+    const candidate = {
+      row,
+      stableKey,
+      callsign: callsign || stableKey,
+      direction: directionInfo.direction || "unknown",
+      fromCountry: directionInfo.fromCountry,
+      toCountry: directionInfo.toCountry,
+      fromPort,
+      toPort,
+      fromPortCode: directionInfo.fromPortCode,
+      toPortCode: directionInfo.toPortCode,
+      tsMs: ts.getTime(),
+      dayKey: toDubaiDayKey(ts),
+    };
+    const existing = deduped.get(dedupeKey);
+    if (!existing || candidate.tsMs > existing.tsMs) deduped.set(dedupeKey, candidate);
+  }
+  return [...deduped.values()].sort((a, b) => b.tsMs - a.tsMs);
+}
+
+function summarizeOperationalFlightRecords(records, airportPriorityList = [], scope = {}) {
+  const items = Array.isArray(records) ? records : [];
+  const asOfTimestamp = items.length ? new Date(Math.max(...items.map((item) => Number(item?.tsMs) || 0))).toISOString() : null;
+  const summary = {
+    total: 0,
+    inbound: 0,
+    outbound: 0,
+    domestic: 0,
+    unknown: 0,
+    airportBreakdown: [],
+    unavailable: items.length === 0,
+    metric_meta: {
+      country_scope: scope.countryScope || "",
+      time_scope: scope.timeScope || "",
+      metric_scope: scope.metricScope || "flight_flow",
+      source_type: scope.sourceType || "flight",
+      dedup_policy: scope.dedupPolicy || "stableKey+direction+route+timeBucket",
+      as_of_timestamp: scope.asOfTimestamp || asOfTimestamp,
+    },
+    reconciliation: {
+      is_consistent: true,
+      reason: "",
+      expected_total: 0,
+      computed_total: 0,
+    },
+  };
+  const byAirport = new Map();
+  const pushAirport = (code, direction) => {
+    const normalized = normalizeAirportCode(code);
+    if (!normalized) return;
+    const current = byAirport.get(normalized) || { airport: normalized, inbound: 0, outbound: 0, domestic: 0, total: 0 };
+    current.total += 1;
+    if (direction === "inbound") current.inbound += 1;
+    else if (direction === "outbound") current.outbound += 1;
+    else if (direction === "domestic") current.domestic += 1;
+    byAirport.set(normalized, current);
+  };
+  for (const item of items) {
+    if (!item?.direction) continue;
+    summary.total += 1;
+    if (item.direction === "inbound") {
+      summary.inbound += 1;
+      pushAirport(item.toPortCode || item.toPort, "inbound");
+      continue;
+    }
+    if (item.direction === "outbound") {
+      summary.outbound += 1;
+      pushAirport(item.fromPortCode || item.fromPort, "outbound");
+      continue;
+    }
+    if (item.direction === "domestic") {
+      summary.domestic += 1;
+      pushAirport(item.fromPortCode || item.fromPort, "domestic");
+      if (normalizeAirportCode(item.toPortCode || item.toPort) !== normalizeAirportCode(item.fromPortCode || item.fromPort)) {
+        pushAirport(item.toPortCode || item.toPort, "domestic");
+      }
+      continue;
+    }
+    summary.unknown += 1;
+    pushAirport(item.toPortCode || item.toPort || item.fromPortCode || item.fromPort, "unknown");
+  }
+  const priorityIndex = new Map(
+    (airportPriorityList || [])
+      .map((code) => normalizeAirportCode(code))
+      .filter(Boolean)
+      .map((code, index) => [code, index])
+  );
+  summary.airportBreakdown = [...byAirport.values()].sort((a, b) => {
+    const aPriority = priorityIndex.has(a.airport) ? priorityIndex.get(a.airport) : 999;
+    const bPriority = priorityIndex.has(b.airport) ? priorityIndex.get(b.airport) : 999;
+    if (aPriority !== bPriority) return aPriority - bPriority;
+    return b.total - a.total;
+  });
+  const computedTotal = summary.inbound + summary.outbound + summary.domestic + summary.unknown;
+  summary.reconciliation = {
+    is_consistent: computedTotal === summary.total,
+    reason: computedTotal === summary.total ? "" : "flight_total_mismatch",
+    expected_total: summary.total,
+    computed_total: computedTotal,
+  };
+  return summary;
+}
+
+function buildFlightImpactSummary(todayTotal, baseline) {
+  const normalizedToday = Number(todayTotal) || 0;
+  const normalizedBaseline = Number.isFinite(Number(baseline)) ? Number(baseline) : 0;
+  if (!normalizedBaseline || normalizedBaseline <= 0) {
+    return {
+      level: "unknown",
+      label: "لا توجد قاعدة مقارنة كافية",
+      deltaPct: null,
+    };
+  }
+  const deltaPct = ((normalizedToday - normalizedBaseline) / normalizedBaseline) * 100;
+  if (deltaPct <= -25) {
+    return { level: "high", label: `تأثر ملحوظ (${Math.round(Math.abs(deltaPct))}% أقل من المعتاد)`, deltaPct };
+  }
+  if (deltaPct <= -10) {
+    return { level: "medium", label: `تأثر طفيف (${Math.round(Math.abs(deltaPct))}% أقل من المعتاد)`, deltaPct };
+  }
+  if (deltaPct >= 20) {
+    return { level: "high", label: `نشاط أعلى من المعتاد (+${Math.round(deltaPct)}%)`, deltaPct };
+  }
+  return { level: "normal", label: "الحركة الجوية ضمن المستوى المعتاد", deltaPct };
+}
+
 function parseTransportContext(row) {
   const detailsMap = new Map(parseDetailsTokens(row?.details));
   const sourceType = String(row?.source_type || "").toLowerCase();
@@ -2445,6 +3011,19 @@ function routeArrowSummary(fromValue, toValue) {
   return `${from} → ${to}`;
 }
 
+function hasRouteToken(value) {
+  return Boolean(normalizeTransportValue(value));
+}
+
+function routeSummaryOrUnknown(fromValue, toValue, fallbackText = "غير متاح من المصدر") {
+  const from = normalizeTransportValue(fromValue);
+  const to = normalizeTransportValue(toValue);
+  if (from && to) return `${from} → ${to}`;
+  if (from) return `${from} → غير متاح`;
+  if (to) return `غير متاح → ${to}`;
+  return fallbackText;
+}
+
 function rowMatchesCountryMarkersForOps(row, markers) {
   if (!markers?.length) return true;
   const transport = parseTransportContext(row);
@@ -2477,6 +3056,34 @@ function geoDistanceKm(latA, lonA, latB, lonB) {
     Math.cos(toRad(latA)) * Math.cos(toRad(latB)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return earthKm * c;
+}
+
+function normalizeHeadingDegrees(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  const normalized = ((numeric % 360) + 360) % 360;
+  return normalized;
+}
+
+function bearingDegrees(fromLat, fromLon, toLat, toLon) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const toDeg = (rad) => (rad * 180) / Math.PI;
+  const lat1 = toRad(fromLat);
+  const lat2 = toRad(toLat);
+  const dLon = toRad(toLon - fromLon);
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return normalizeHeadingDegrees(toDeg(Math.atan2(y, x)));
+}
+
+function headingTowardTarget(heading, fromLat, fromLon, toLat, toLon, tolerance = 95) {
+  const normalizedHeading = normalizeHeadingDegrees(heading);
+  if (normalizedHeading == null) return null;
+  const targetBearing = bearingDegrees(fromLat, fromLon, toLat, toLon);
+  if (targetBearing == null) return null;
+  const delta = Math.abs(normalizedHeading - targetBearing);
+  const shortestDelta = Math.min(delta, 360 - delta);
+  return shortestDelta <= Math.max(45, Number(tolerance) || 95);
 }
 
 function inferCountryByCoords(latValue, lonValue, maxKm = 430) {
@@ -2524,11 +3131,8 @@ function summarizeSourceDetails(row) {
     if (detailsMap.get("from_port") || detailsMap.get("to_port")) {
       parts.push(`المطار: ${routeArrowSummary(detailsMap.get("from_port"), detailsMap.get("to_port"))}`);
     }
-    if (detailsMap.get("speed_kt")) parts.push(`السرعة: ${detailsMap.get("speed_kt")} عقدة`);
-    if (detailsMap.get("velocity_mps")) parts.push(`السرعة: ${detailsMap.get("velocity_mps")} م/ث`);
-    if (detailsMap.get("altitude")) parts.push(`الارتفاع: ${detailsMap.get("altitude")}`);
-    if (detailsMap.get("baro_alt_m")) parts.push(`الارتفاع: ${detailsMap.get("baro_alt_m")} م`);
-    if (detailsMap.get("on_ground")) parts.push(`على الأرض: ${detailsMap.get("on_ground")}`);
+    if (detailsMap.get("status")) parts.push(`الحالة التشغيلية: ${detailsMap.get("status")}`);
+    if (detailsMap.get("aircraft_type")) parts.push(`نوع الطائرة: ${detailsMap.get("aircraft_type")}`);
     return parts.join(" | ") || cleanText(row.summary || "");
   }
 
@@ -2574,7 +3178,7 @@ function parseFacts(row) {
 
   const detailsMap = new Map(parseDetailsTokens(row.details));
   const importantByType = {
-    flight: ["callsign", "from_country", "to_country", "from_port", "to_port", "aircraft_type", "speed_kt", "altitude", "on_ground"],
+    flight: ["callsign", "from_country", "to_country", "from_port", "to_port", "aircraft_type", "status"],
     marine: ["ship_name", "from_country", "to_country", "from_port", "to_port", "vessel_type", "mmsi", "imo", "speed_kn", "heading", "status"],
     cyber: ["cve", "severity", "vendor", "product"],
     incident: ["country", "city", "category"],
@@ -3580,7 +4184,7 @@ function downloadBlob(filename, blob) {
   URL.revokeObjectURL(href);
 }
 
-export default function App() {
+export default function App({ currentUser = null }) {
   const [events, setEvents] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [sources, setSources] = useState([]);
@@ -3594,7 +4198,7 @@ export default function App() {
     model: "gpt-4.1-mini",
     message: "Checking..."
   });
-  const [jsonCargoStatus, setJsonCargoStatus] = useState({
+  const [xStatus, setXStatus] = useState({
     configured: false,
     state: "unknown",
     message: "Checking...",
@@ -3606,6 +4210,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [lastSync, setLastSync] = useState(null);
   const [ingestionRunning, setIngestionRunning] = useState(false);
+  const [ocrBackfillRunning, setOcrBackfillRunning] = useState(false);
+  const [ocrBackfillStatus, setOcrBackfillStatus] = useState("");
 
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -3627,7 +4233,9 @@ export default function App() {
   const [focusedAlertId, setFocusedAlertId] = useState(null);
   const [selectedEventIds, setSelectedEventIds] = useState([]);
   const [selectedAlertIds, setSelectedAlertIds] = useState([]);
-  const [selectedVideoSourceId, setSelectedVideoSourceId] = useState(skyVideoSources[0]?.id || "");
+  const [selectedVideoSourceId, setSelectedVideoSourceId] = useState(
+    skyVideoSources.some((row) => row.id === DEFAULT_VIDEO_SOURCE_ID) ? DEFAULT_VIDEO_SOURCE_ID : skyVideoSources[0]?.id || ""
+  );
   const [videoEmbedIndexBySource, setVideoEmbedIndexBySource] = useState({});
   const [versionTab, setVersionTab] = useState("v1");
   const [aiTab, setAiTab] = useState("chat");
@@ -3635,13 +4243,13 @@ export default function App() {
   const [predictionViewMode, setPredictionViewMode] = useState("exec");
   const [v2Lane, setV2Lane] = useState("all");
   const [v2UnreadOnly, setV2UnreadOnly] = useState(false);
-  const [v2TrustedOnly, setV2TrustedOnly] = useState(true);
+  const [v2TrustedOnly, setV2TrustedOnly] = useState(false);
   const [v2FocusedEventId, setV2FocusedEventId] = useState(null);
   const [v2SelectedEventIds, setV2SelectedEventIds] = useState([]);
   const [v2OpsWindowHours, setV2OpsWindowHours] = useState(6);
   const [v2OpsLayers, setV2OpsLayers] = useState({ air: true, marine: true, threats: true });
   const [v2OpsFocusPointId, setV2OpsFocusPointId] = useState(null);
-  const [v2OpsHoveredPointId, setV2OpsHoveredPointId] = useState(null);
+  const [v2MapProviderIndex, setV2MapProviderIndex] = useState(0);
   const [v2ThreatCountry, setV2ThreatCountry] = useState(threatCountryDefs[0]?.country || "UAE");
   const [warThreatEvents, setWarThreatEvents] = useState([]);
   const [predictionTickets, setPredictionTickets] = useState([]);
@@ -3663,6 +4271,13 @@ export default function App() {
   const [clearingPredictionTickets, setClearingPredictionTickets] = useState(false);
   const [predictionNote, setPredictionNote] = useState("");
   const [liveNotices, setLiveNotices] = useState([]);
+  const allowedPages = useMemo(
+    () => normalizePageAccessList(currentUser?.page_access, currentUser?.access_version || "v1"),
+    [currentUser?.page_access, currentUser?.access_version]
+  );
+  const hasPageAccess = useCallback((pageKey) => allowedPages.includes(pageKey), [allowedPages]);
+  const firstAllowedPage = allowedPages[0] || "v1";
+  const canUseV2 = hasPageAccess("v2");
 
   const [chatInput, setChatInput] = useState("");
   const [analysisTitle, setAnalysisTitle] = useState("تحليل تشغيلي");
@@ -3679,10 +4294,9 @@ export default function App() {
   const [seenEventIds, setSeenEventIds] = useState([]);
   const [v2FocusFlash, setV2FocusFlash] = useState(false);
   const [v2SectionOpen, setV2SectionOpen] = useState({
+    head: true,
     predictions: true,
     opsBoard: true,
-    narrative: true,
-    freshness: true,
     focus: true,
     storyStream: true,
   });
@@ -3691,6 +4305,9 @@ export default function App() {
   const v2OpsMapContainerRef = useRef(null);
   const v2OpsLeafletMapRef = useRef(null);
   const v2OpsLeafletLayerRef = useRef(null);
+  const showUiError = useCallback((err, fallbackMessage) => {
+    setError(formatUiError(err, fallbackMessage));
+  }, []);
 
   const loadAll = useCallback(async () => {
     try {
@@ -3705,20 +4322,20 @@ export default function App() {
         predictionsResp,
         leaderboardResp,
         predictionReviewConfigResp,
-        jsonCargoStatusResp,
+        xStatusResp,
       ] =
         await Promise.all([
-        apiGet("/events?limit=1800"),
+        apiGet("/events?limit=3200&feature=news_feed"),
         apiGet("/alerts?limit=200"),
         apiGet("/sources"),
         apiGet("/ai/messages?limit=120"),
         apiGet("/ai/insights?limit=80"),
-        apiGet("/ai/reports?limit=40"),
+        canUseV2 ? apiGet("/ai/reports?limit=40").catch(() => []) : Promise.resolve([]),
         apiGet("/ai/privacy"),
-        apiGet("/ai/predictions?limit=120").catch(() => []),
-        apiGet("/ai/predictions/leaderboard").catch(() => []),
-        apiGet("/ai/predictions/review-config").catch(() => null),
-        apiGet("/sources/jsoncargo/status").catch(() => null),
+        canUseV2 ? apiGet("/ai/predictions?limit=120").catch(() => []) : Promise.resolve([]),
+        canUseV2 ? apiGet("/ai/predictions/leaderboard").catch(() => []) : Promise.resolve([]),
+        canUseV2 ? apiGet("/ai/predictions/review-config").catch(() => null) : Promise.resolve(null),
+        apiGet("/sources/x/status").catch(() => null),
       ]);
       let aiStatusResp = {
         configured: false,
@@ -3755,13 +4372,24 @@ export default function App() {
           min_interval_minutes: Number(predictionReviewConfigResp.min_interval_minutes || 10),
         });
       }
-      if (jsonCargoStatusResp && typeof jsonCargoStatusResp === "object") {
-        setJsonCargoStatus({
-          configured: Boolean(jsonCargoStatusResp.configured),
-          state: cleanText(jsonCargoStatusResp.state || "unknown").toLowerCase() || "unknown",
-          message: cleanText(jsonCargoStatusResp.message || "Unavailable"),
-          detail: cleanText(jsonCargoStatusResp.detail || ""),
-          status_code: Number.isFinite(Number(jsonCargoStatusResp.status_code)) ? Number(jsonCargoStatusResp.status_code) : null,
+      if (xStatusResp && typeof xStatusResp === "object") {
+        setXStatus({
+          configured: Boolean(xStatusResp.configured),
+          state: cleanText(xStatusResp.state || "unknown").toLowerCase() || "unknown",
+          message: cleanText(xStatusResp.message || "Unavailable"),
+          detail: cleanText(xStatusResp.detail || ""),
+          status_code: Number.isFinite(Number(xStatusResp.status_code)) ? Number(xStatusResp.status_code) : null,
+        });
+      } else {
+        const xSource = (Array.isArray(sourcesResp) ? sourcesResp : []).find((row) =>
+          ["x_recent", "x_api_v2", "twitter_recent"].includes(cleanText(row?.parser_hint || "").toLowerCase())
+        );
+        setXStatus({
+          configured: Boolean(xSource),
+          state: xSource ? "error" : "not_configured",
+          message: xSource ? "X status endpoint unavailable on current backend." : "No X source configured.",
+          detail: "",
+          status_code: null,
         });
       }
       setAiStatus(aiStatusResp);
@@ -3772,7 +4400,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canUseV2]);
 
   useEffect(() => {
     loadAll();
@@ -3804,7 +4432,7 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    const basePath = `/events?limit=4000&event_time_from=${encodeURIComponent(WAR_START_ISO)}`;
+    const basePath = `/events?limit=4000&feature=event_monitoring&event_time_from=${encodeURIComponent(WAR_START_ISO)}`;
     const threatHistoryPaths = [
       `${basePath}&source_type=social`,
       `${basePath}&source_type=news`,
@@ -3998,9 +4626,10 @@ export default function App() {
     };
   }, [v2OpsLayers]);
 
-  function buildWorkspaceEventsPath(workspace, limit = 600) {
+  function buildWorkspaceEventsPath(workspace, limit = 4000) {
     const params = new URLSearchParams();
     params.set("limit", String(limit));
+    params.set("feature", "event_monitoring");
     const range = resolveAnalysisDateRange(workspace);
     if (range.fromIso) params.set("event_time_from", range.fromIso);
     return `/events?${params.toString()}`;
@@ -4545,19 +5174,6 @@ export default function App() {
     return stats;
   }, [sortedFilteredEvents, v2TrustedOnly, seenEventIdSet]);
 
-  const v2Freshness = useMemo(() => {
-    const counts = { live: 0, ten: 0, oneHour: 0, threeHours: 0, stale: 0 };
-    for (const row of v2Events) {
-      const mins = minutesSince(eventDisplayTime(row));
-      if (mins <= 3) counts.live += 1;
-      else if (mins <= 10) counts.ten += 1;
-      else if (mins <= 60) counts.oneHour += 1;
-      else if (mins <= 180) counts.threeHours += 1;
-      else counts.stale += 1;
-    }
-    return counts;
-  }, [v2Events]);
-
   const v2StoryGroups = useMemo(() => {
     const grouped = new Map();
     for (const row of v2Events) {
@@ -4579,24 +5195,6 @@ export default function App() {
         };
       })
       .sort((a, b) => b.lead.severity - a.lead.severity || byDateDesc(a.latestTime, b.latestTime));
-  }, [v2Events]);
-
-  const v2Narrative = useMemo(() => {
-    const top = v2Events[0];
-    const topHigh = v2Events.find((row) => row.severity >= 4);
-    const laneHot = ["geo", "cyber", "marine", "air"]
-      .map((lane) => ({ lane, count: v2Events.filter((row) => eventLane(row) === lane).length }))
-      .sort((a, b) => b.count - a.count)[0];
-    return {
-      happened: top ? displayText(top.title) : "لا توجد أحداث حالياً.",
-      why: topHigh
-        ? `الأولوية الآن: ${severityMeaning(topHigh.severity)} (S${topHigh.severity}) من ${displayText(topHigh.source_name)}.`
-        : "لا توجد أحداث عالية الشدة حالياً ضمن هذا الفلتر.",
-      next:
-        laneHot && laneHot.count > 0
-          ? `راقب مسار ${laneHot.lane === "geo" ? "جيوسياسي" : laneHot.lane === "cyber" ? "سيبراني" : laneHot.lane === "marine" ? "ملاحي" : "جوي"} خلال الساعة القادمة.`
-          : "تابع التحديثات الجديدة خلال الدقائق القادمة."
-    };
   }, [v2Events]);
 
   const v2OpsRegionalEvents = useMemo(() => {
@@ -4707,6 +5305,7 @@ export default function App() {
         detailsMap.get("speed_kt") || detailsMap.get("speed") || detailsMap.get("ground_speed") || detailsMap.get("velocity_mps")
       );
       const altitude = parseLooseNumber(detailsMap.get("baro_alt_m") || detailsMap.get("geo_alt_m") || detailsMap.get("altitude"));
+      const heading = parseLooseNumber(detailsMap.get("heading") || detailsMap.get("track") || detailsMap.get("track_deg"));
       const onGround = parseLooseBoolean(detailsMap.get("on_ground"));
       const statusText = [eventText(row), cleanText(detailsMap.get("status"))].join(" ");
       const airborneLikely =
@@ -4728,7 +5327,7 @@ export default function App() {
       const toPort = normalizeTransportValue(detailsMap.get("to_port") || detailsMap.get("destination")) || destIata || destIcao;
       const fromCountryRaw = normalizeTransportValue(detailsMap.get("from_country") || detailsMap.get("origin_country"));
       const toCountryRaw = normalizeTransportValue(detailsMap.get("to_country") || detailsMap.get("destination_country"));
-      const fromCountry = fromCountryRaw || inferCountryFromIcaoCode(origIcao) || (isUaeAirportCode(fromPort) ? "UAE" : "") || currentCountry;
+      const fromCountry = fromCountryRaw || inferCountryFromIcaoCode(origIcao) || (isUaeAirportCode(fromPort) ? "UAE" : "");
       const toCountry = toCountryRaw || inferCountryFromIcaoCode(destIcao) || (isUaeAirportCode(toPort) ? "UAE" : "");
       const routeScopeText = cleanText(
         [
@@ -4745,7 +5344,8 @@ export default function App() {
       ).toLowerCase();
       const touchesSelectedCountryByRoute = selectedOpsCountryMarkers.some((marker) => marker && routeScopeText.includes(marker));
       const hasRouteHints = [fromCountry, toCountry, fromPort, toPort].some(Boolean);
-      const touchesSelectedCountryByPosition = !hasRouteHints && isInsideCountryOpsRadius(row, selectedOpsCountryDef, 450);
+      // Always allow coordinate-based fallback even when route tokens are incomplete/noisy.
+      const touchesSelectedCountryByPosition = isInsideCountryOpsRadius(row, selectedOpsCountryDef, 520);
       const touchesSelectedCountry = touchesSelectedCountryByRoute || touchesSelectedCountryByPosition;
       if (!touchesSelectedCountry) continue;
       byFlight.set(key, {
@@ -4766,7 +5366,8 @@ export default function App() {
         origIcao,
         destIcao,
         currentCountry,
-        heading: parseLooseNumber(detailsMap.get("heading") || detailsMap.get("track")),
+        hasRouteHints,
+        heading,
         aircraftType: normalizeTransportValue(detailsMap.get("aircraft_type")),
         flightType: classifyFlightType(typeText),
         assessment: toArabicOperationalAssessment(row.ai_assessment, row.severity),
@@ -4869,7 +5470,7 @@ export default function App() {
       const lat = row.latitude ?? inferred?.lat ?? null;
       const lon = row.longitude ?? inferred?.lon ?? null;
       const currentCountry = inferCountryByCoords(lat, lon, 500);
-      const fromCountry = normalizeTransportValue(detailsMap.get("from_country") || detailsMap.get("origin_country")) || currentCountry;
+      const fromCountry = normalizeTransportValue(detailsMap.get("from_country") || detailsMap.get("origin_country"));
       const toCountry = normalizeTransportValue(detailsMap.get("to_country") || detailsMap.get("destination_country"));
       const fromPort = normalizeTransportValue(detailsMap.get("from_port") || detailsMap.get("origin"));
       const toPort = normalizeTransportValue(detailsMap.get("to_port") || detailsMap.get("destination"));
@@ -4942,103 +5543,106 @@ export default function App() {
   }, [v2MarineSensorSnapshots, v2MarineIntelSnapshots]);
 
   const v2ThreatEvidenceEvents = useMemo(() => {
-    const merged = new Map();
-    for (const row of warThreatEvents || []) {
-      if (!row?.id) continue;
-      merged.set(row.id, row);
-    }
-    for (const row of events || []) {
-      if (!row?.id) continue;
-      merged.set(row.id, row);
-    }
-
-    return [...merged.values()]
-      .filter((row) => {
-        if (row.source_type === "flight" || row.source_type === "marine") return false;
-        const ts = parsePossiblyDate(eventDisplayTime(row))?.getTime() ?? 0;
-        if (!ts || ts < WAR_START_DATE_MS) return false;
-        if (v2TrustedOnly && !isTrustedEvent(row)) return false;
-        const text = eventText(row);
-        if (!isThreatIntelLike(row)) return false;
-        return threatCountryDefs.some((countryDef) =>
+    const byId = new Map();
+    for (const row of [...warThreatEvents, ...events]) {
+      if (!row?.id || byId.has(row.id)) continue;
+      if (row.source_type === "flight" || row.source_type === "marine") continue;
+      if (v2TrustedOnly && !isTrustedEvent(row)) continue;
+      const ts = parsePossiblyDate(eventDisplayTime(row))?.getTime() ?? Number.NaN;
+      if (!Number.isFinite(ts) || ts < WAR_START_DATE_MS) continue;
+      if (!isThreatIntelLike(row)) continue;
+      const text = eventText(row);
+      if (
+        !threatCountryDefs.some((countryDef) =>
           countryDef.markers.some((marker) => text.includes(cleanText(marker).toLowerCase()))
-        );
-      })
-      .sort((a, b) => {
-        const aTs = parsePossiblyDate(eventDisplayTime(a))?.getTime() ?? 0;
-        const bTs = parsePossiblyDate(eventDisplayTime(b))?.getTime() ?? 0;
-        return aTs - bTs;
-      });
+        )
+      ) {
+        continue;
+      }
+      byId.set(row.id, row);
+    }
+    return [...byId.values()].sort((a, b) => {
+      const aTs = parsePossiblyDate(eventDisplayTime(a))?.getTime() ?? 0;
+      const bTs = parsePossiblyDate(eventDisplayTime(b))?.getTime() ?? 0;
+      return aTs - bTs;
+    });
   }, [events, warThreatEvents, v2TrustedOnly]);
 
   const v2ThreatRows = useMemo(() => {
     const rows = threatCountryDefs.map((countryDef) => {
-      const signalCumulativeByStory = { ballistic: new Map(), cruise: new Map(), drones: new Map() };
-      const signalIncrementByStory = { ballistic: new Map(), cruise: new Map(), drones: new Map() };
-      const mentionOnlyByStory = {
-        ballistic: new Set(),
-        cruise: new Set(),
-        drones: new Set(),
+      const latestBySignal = {
+        ballistic: null,
+        cruise: null,
+        drones: null,
       };
-      const storyMentions = new Set();
+      const mentionOnlySignals = {
+        ballistic: false,
+        cruise: false,
+        drones: false,
+      };
+      const officialStories = new Set();
+      let latestOfficialTs = 0;
+
       for (const eventRow of v2ThreatEvidenceEvents) {
-        const text = [eventRow.title, eventRow.summary, eventRow.details, eventRow.ai_assessment, eventRow.tags].filter(Boolean).join(" ");
+        if (!isOfficialOpsEvidence(eventRow)) continue;
+        const text = [eventRow.title, eventRow.summary, stripOcrTokensFromDetails(eventRow.details), eventRow.ai_assessment, eventRow.tags]
+          .filter(Boolean)
+          .join(" ");
         const lower = cleanText(text).toLowerCase();
         if (!countryDef.markers.some((marker) => lower.includes(marker.toLowerCase()))) continue;
+
         const storyKey = eventStoryDedupKey(eventRow);
-        storyMentions.add(storyKey);
+        officialStories.add(storyKey);
+        const ts = parsePossiblyDate(eventDisplayTime(eventRow))?.getTime() || 0;
+        if (ts > latestOfficialTs) latestOfficialTs = ts;
+
         for (const signal of threatSignalDefs) {
-          const value = extractSignalMaxFromText(text, signal.patterns, {
+          const valueFromText = extractSignalMaxFromText(text, signal.patterns, {
             maxValue: THREAT_SIGNAL_MAX_VALUE,
             maxDigits: THREAT_SIGNAL_MAX_DIGITS,
           });
+          const valueFromOcr = extractOcrSignalMaxFromDetails(eventRow.details, signal.key, text, {
+            maxValue: THREAT_SIGNAL_MAX_VALUE,
+            maxDigits: THREAT_SIGNAL_MAX_DIGITS,
+          });
+          const value = valueFromOcr ?? valueFromText;
+
           if (value != null) {
-            if (isCumulativeThreatStatement(text)) {
-              const previous = signalCumulativeByStory[signal.key].get(storyKey) || 0;
-              signalCumulativeByStory[signal.key].set(storyKey, Math.max(previous, value));
-            } else {
-              const previous = signalIncrementByStory[signal.key].get(storyKey) || 0;
-              signalIncrementByStory[signal.key].set(storyKey, Math.max(previous, value));
+            const current = latestBySignal[signal.key];
+            if (!current || ts > current.ts || (ts === current.ts && value > current.value)) {
+              latestBySignal[signal.key] = {
+                value,
+                ts,
+                source: cleanText(eventRow.source_name),
+              };
             }
-            mentionOnlyByStory[signal.key].delete(storyKey);
             continue;
           }
-          if (hasSignalMention(text, signal.mentionPatterns)) {
-            if (!signalCumulativeByStory[signal.key].has(storyKey) && !signalIncrementByStory[signal.key].has(storyKey)) {
-              mentionOnlyByStory[signal.key].add(storyKey);
-            }
+
+          if (hasSignalMention(text, signal.mentionPatterns) && !latestBySignal[signal.key]) {
+            mentionOnlySignals[signal.key] = true;
           }
         }
       }
-      // Cumulative board logic:
-      // - Official "since start" snapshots contribute as a running baseline (max).
-      // - Incident-level numeric stories contribute as additive increments.
-      // - Mention-only stories contribute +1 when no explicit number exists.
-      const cumulativePlusIncrements = (cumulativeMap, incrementMap, mentionSet) => {
-        const baseline = [...cumulativeMap.values()].reduce((max, value) => Math.max(max, Number(value) || 0), 0);
-        const increments = [...incrementMap.values()].reduce((sum, value) => sum + (Number(value) || 0), 0);
-        return baseline + increments + mentionSet.size;
+
+      const signalDisplay = (signalKey) => {
+        const latest = latestBySignal[signalKey];
+        if (latest && latest.value > 0) return String(latest.value);
+        if (mentionOnlySignals[signalKey]) return "مرصود بلا رقم";
+        return "غير متاح";
       };
-      const totals = {
-        ballistic: cumulativePlusIncrements(
-          signalCumulativeByStory.ballistic,
-          signalIncrementByStory.ballistic,
-          mentionOnlyByStory.ballistic
-        ),
-        cruise: cumulativePlusIncrements(signalCumulativeByStory.cruise, signalIncrementByStory.cruise, mentionOnlyByStory.cruise),
-        drones: cumulativePlusIncrements(signalCumulativeByStory.drones, signalIncrementByStory.drones, mentionOnlyByStory.drones),
-      };
-      const mentions = storyMentions.size;
+
       return {
         country: countryDef.country,
         country_ar: countryDef.country_ar,
         lat: countryDef.lat,
         lon: countryDef.lon,
-        ballistic: totals.ballistic > 0 ? String(totals.ballistic) : mentions > 0 ? "مرصود بلا رقم" : "غير متاح",
-        cruise: totals.cruise > 0 ? String(totals.cruise) : mentions > 0 ? "مرصود بلا رقم" : "غير متاح",
-        drones: totals.drones > 0 ? String(totals.drones) : mentions > 0 ? "مرصود بلا رقم" : "غير متاح",
-        mentions,
-        signal_mentions: mentionOnlyByStory.ballistic.size + mentionOnlyByStory.cruise.size + mentionOnlyByStory.drones.size,
+        ballistic: signalDisplay("ballistic"),
+        cruise: signalDisplay("cruise"),
+        drones: signalDisplay("drones"),
+        mentions: officialStories.size,
+        latest_official_at: latestOfficialTs > 0 ? new Date(latestOfficialTs).toISOString() : null,
+        signal_mentions: Number(mentionOnlySignals.ballistic) + Number(mentionOnlySignals.cruise) + Number(mentionOnlySignals.drones),
       };
     });
     const ordered = [...rows].sort((a, b) => b.mentions - a.mentions || a.country_ar.localeCompare(b.country_ar, "ar"));
@@ -5069,38 +5673,88 @@ export default function App() {
     return { ballistic, cruise, drones };
   }, [v2ThreatRows]);
 
-  const v2OpsStats = useMemo(() => {
-    const takeoffs = v2FlightAllSnapshots.filter((row) => row.takeoffLikely).length;
-    const airborne = v2FlightAllSnapshots.filter((row) => row.airborneLikely).length;
-    const landed = v2FlightAllSnapshots.filter((row) => row.landedLikely).length;
-    const shipsMoving = v2ShipSnapshots.filter((row) => row.movingLikely).length;
-    const sensorFlights = v2FlightSnapshots.filter((row) => row?.sourceKind !== "intel");
-    const uaeFlights = sensorFlights.map((row) => {
-      const fromUae =
-        isUaeCountryValue(row.fromCountry) || isUaeAirportCode(row.fromPort || row.origIata) || isUaeIcaoCode(row.origIcao);
-      const toUae = isUaeCountryValue(row.toCountry) || isUaeAirportCode(row.toPort || row.destIata) || isUaeIcaoCode(row.destIcao);
-      return { ...row, fromUae, toUae };
+  const v2OpsFlightOperationalRecords = useMemo(() => {
+    const scopedRows = (v2OpsRegionalEvents || []).filter((row) => row?.source_type === "flight");
+    return buildOperationalFlightRecords(scopedRows, selectedOpsCountryDef, selectedOpsCountryMarkers, { bucketMinutes: 10 });
+  }, [v2OpsRegionalEvents, selectedOpsCountryDef, selectedOpsCountryMarkers]);
+
+  const v2OpsFlightOperationalAllRecords = useMemo(() => {
+    let rows = (events || []).filter((row) => row?.source_type === "flight");
+    if (v2TrustedOnly) rows = rows.filter((row) => isTrustedEvent(row));
+    rows = rows.filter((row) => {
+      const ts = parsePossiblyDate(eventDisplayTime(row))?.getTime() ?? Number.NaN;
+      return Number.isFinite(ts) && ts >= WAR_START_DATE_MS;
     });
-    const uaeIncoming = uaeFlights.filter((row) => row.toUae && !row.fromUae).length;
-    const uaeOutgoing = uaeFlights.filter((row) => row.fromUae && !row.toUae).length;
-    const uaeDomestic = uaeFlights.filter((row) => row.fromUae && row.toUae).length;
-    const uaeTouching = uaeFlights.filter((row) => row.fromUae || row.toUae);
+    return buildOperationalFlightRecords(rows, selectedOpsCountryDef, selectedOpsCountryMarkers, { bucketMinutes: 10 });
+  }, [events, v2TrustedOnly, selectedOpsCountryDef, selectedOpsCountryMarkers]);
+
+  const v2OpsStats = useMemo(() => {
+    const airportPriority = countryAirportPriority(selectedOpsCountryDef?.country);
+    const windowFlow = summarizeOperationalFlightRecords(v2OpsFlightOperationalRecords, airportPriority, {
+      countryScope: selectedOpsCountryDef?.country || "",
+      timeScope: `last_${v2OpsWindowHours}h`,
+      metricScope: "flight_window_flow",
+      sourceType: "flight",
+    });
+    const todayKey = toDubaiDayKey(Date.now());
+    const todayRecords = v2OpsFlightOperationalAllRecords.filter((row) => row.dayKey === todayKey);
+    const todayFlow = summarizeOperationalFlightRecords(todayRecords, airportPriority, {
+      countryScope: selectedOpsCountryDef?.country || "",
+      timeScope: "today",
+      metricScope: "flight_daily_flow",
+      sourceType: "flight",
+    });
+    const historicalByDay = new Map();
+    for (const row of v2OpsFlightOperationalAllRecords) {
+      if (!row.dayKey || row.dayKey === todayKey) continue;
+      historicalByDay.set(row.dayKey, (historicalByDay.get(row.dayKey) || 0) + 1);
+    }
+    const baselineSamples = [...historicalByDay.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .slice(0, 7)
+      .map(([, value]) => value);
+    const baseline = baselineSamples.length ? baselineSamples.reduce((sum, value) => sum + value, 0) / baselineSamples.length : 0;
+    const impact = buildFlightImpactSummary(todayFlow.total, baseline);
+    const shipsMoving = v2ShipSnapshots.filter((row) => row.movingLikely).length;
+    const operationalTypeCounts = summarizeCounts(
+      v2OpsFlightOperationalRecords.map((item) =>
+        classifyFlightType([item.row?.title, item.row?.summary, item.row?.details].filter(Boolean).join(" "))
+      )
+    );
     return {
-      takeoffs,
-      airborne,
-      landed,
+      takeoffs: windowFlow.total,
+      airborne: todayFlow.total,
+      landed: 0,
       shipsMoving,
       marineIntelSignals: v2MarineIntelSnapshots.length,
       flightTypeCounts: summarizeCounts(v2FlightAllSnapshots.map((row) => row.flightType)),
       shipTypeCounts: summarizeCounts(v2ShipSnapshots.map((row) => row.shipType)),
       cargoTypeCounts: summarizeCounts(v2ShipSnapshots.map((row) => row.cargoType)),
-      uaeIncoming,
-      uaeOutgoing,
-      uaeDomestic,
-      uaeTouchingCount: uaeTouching.length,
-      uaeFlightTypeCounts: summarizeCounts(uaeTouching.map((row) => row.flightType)),
+      uaeIncoming: windowFlow.inbound,
+      uaeOutgoing: windowFlow.outbound,
+      uaeDomestic: windowFlow.domestic,
+      uaeUnknown: windowFlow.unknown,
+      uaeTouchingCount: windowFlow.total,
+      uaeFlightTypeCounts: operationalTypeCounts,
+      airportBreakdown: windowFlow.airportBreakdown.slice(0, 6),
+      todayTotal: todayFlow.total,
+      todayIncoming: todayFlow.inbound,
+      todayOutgoing: todayFlow.outbound,
+      todayDomestic: todayFlow.domestic,
+      todayUnknown: todayFlow.unknown,
+      todayUnavailable: todayFlow.unavailable,
+      windowUnavailable: windowFlow.unavailable,
+      impactLabel: impact.label,
+      impactLevel: impact.level,
+      impactDeltaPct: impact.deltaPct,
+      impactBaseline: baseline > 0 ? baseline : null,
+      opsWindowTotal: windowFlow.total,
+      flightWindowMeta: windowFlow.metric_meta,
+      flightTodayMeta: todayFlow.metric_meta,
+      flightWindowReconciliation: windowFlow.reconciliation,
+      flightTodayReconciliation: todayFlow.reconciliation,
     };
-  }, [v2FlightAllSnapshots, v2FlightSnapshots, v2ShipSnapshots, v2MarineIntelSnapshots]);
+  }, [v2FlightAllSnapshots, v2ShipSnapshots, v2MarineIntelSnapshots, v2OpsFlightOperationalRecords, v2OpsFlightOperationalAllRecords, selectedOpsCountryDef, v2OpsWindowHours]);
 
   const v2OpsMapPoints = useMemo(() => {
     const points = [];
@@ -5114,10 +5768,10 @@ export default function App() {
           type: "threat",
           icon: opsTypeIcon("threat"),
           label: `تهديدات ${threatRow.country_ar}`,
-          sub: `${normalizeThreatValue(threatRow.ballistic)} بالستي | ${normalizeThreatValue(threatRow.cruise)} كروز | ${normalizeThreatValue(
+          sub: `${normalizeThreatValue(threatRow.ballistic)} باليستية | ${normalizeThreatValue(threatRow.cruise)} كروز | ${normalizeThreatValue(
             threatRow.drones
           )} مسيّرات`,
-          note: `قيم تراكمية منذ 27/02/2026 من جميع الإشارات الموثوقة المحمّلة (${threatRow.mentions} إشارات مرتبطة بالدولة).`,
+          note: `آخر منشور رسمي لكل إشارة${threatRow.latest_official_at ? ` (${formatTime(threatRow.latest_official_at)})` : ""} | عدد المنشورات الرسمية المرتبطة: ${threatRow.mentions}.`,
           lat: coords.lat,
           lon: coords.lon,
           rowId: null,
@@ -5130,13 +5784,18 @@ export default function App() {
         const row = flight.row;
         const coords = sanitizeLatLon(row.latitude ?? flight.lat, row.longitude ?? flight.lon);
         if (!coords) continue;
+        const countryRouteLabel = routeSummaryOrUnknown(flight.fromCountry, flight.toCountry);
+        const fromCountryLabel = normalizeTransportValue(flight.fromCountry) || "غير متاح";
+        const toCountryLabel = normalizeTransportValue(flight.toCountry) || "غير متاح";
         const pointType = flight.sourceKind === "intel" ? "air-intel" : "air";
         points.push({
           id: `air-${row.id}`,
           type: pointType,
           icon: opsTypeIcon(pointType),
           label: `رحلة ${flight.key}`,
-          sub: `${flight.flightType} | ${routeArrowSummary(flight.fromCountry, flight.toCountry)} | ${routeArrowSummary(
+          sub: `${
+            normalizeTransportValue(flight.flightType) || "رحلة"
+          } | المسار (الدول): ${countryRouteLabel} | بلد الإقلاع: ${fromCountryLabel} | بلد الوصول: ${toCountryLabel} | مسار المطارات: ${routeSummaryOrUnknown(
             flight.fromPort,
             flight.toPort
           )}`,
@@ -5172,11 +5831,10 @@ export default function App() {
       for (const intel of v2ThreatIntelSnapshots.slice(0, 18)) {
         const coords = sanitizeLatLon(intel.lat, intel.lon);
         if (!coords) continue;
-        const icon = intel.signalKind === "drones" ? "🛸" : intel.signalKind === "cruise" ? "🎯" : "🚀";
         points.push({
           id: `threat-intel-${intel.row.id}`,
           type: "threat-intel",
-          icon,
+          icon: opsTypeIcon("threat-intel"),
           label: "إشارة تهديد إعلامية",
           sub: `${displayText(intel.row.title).slice(0, 120)}`,
           note: intel.assessment,
@@ -5199,21 +5857,14 @@ export default function App() {
     }
   }, [v2OpsMapPoints, v2OpsFocusPointId]);
 
-  useEffect(() => {
-    if (!v2OpsHoveredPointId) return;
-    if (!v2OpsMapPoints.some((point) => point.id === v2OpsHoveredPointId)) {
-      setV2OpsHoveredPointId(null);
-    }
-  }, [v2OpsMapPoints, v2OpsHoveredPointId]);
-
   const v2OpsFocusPoint = useMemo(
     () => v2OpsMapPoints.find((point) => point.id === v2OpsFocusPointId) || v2OpsMapPoints[0] || null,
     [v2OpsMapPoints, v2OpsFocusPointId]
   );
 
   const v2OpsHoverPoint = useMemo(
-    () => v2OpsMapPoints.find((point) => point.id === v2OpsHoveredPointId) || v2OpsFocusPoint || null,
-    [v2OpsMapPoints, v2OpsHoveredPointId, v2OpsFocusPoint]
+    () => v2OpsFocusPoint || v2OpsMapPoints[0] || null,
+    [v2OpsFocusPoint, v2OpsMapPoints]
   );
 
   const v2OpsPointByRowId = useMemo(() => {
@@ -5275,84 +5926,184 @@ export default function App() {
     return items;
   }, [v2ShipDisplayItems]);
 
+  const v2OpsMapViewport = useMemo(() => {
+    const mapWidth = 1000;
+    const mapHeight = 420;
+    const fallbackCenter = selectedOpsCountryDef
+      ? { lat: Number(selectedOpsCountryDef.lat), lon: Number(selectedOpsCountryDef.lon) }
+      : { lat: 24.4539, lon: 54.3773 };
+    const focusCoords = sanitizeLatLon(v2OpsFocusPoint?.lat, v2OpsFocusPoint?.lon);
+    const center = focusCoords || fallbackCenter;
+    const zoom = v2OpsFocusPoint ? 5 : 4;
+    return { center, zoom, mapWidth, mapHeight };
+  }, [selectedOpsCountryDef, v2OpsFocusPoint]);
+
+  const v2OpsProjectedPoints = useMemo(() => {
+    if (!v2OpsMapPoints.length) return [];
+    const clampLat = (value) => Math.max(-85, Math.min(85, Number(value)));
+    const worldPoint = (latValue, lonValue, zoom) => {
+      const lat = clampLat(latValue);
+      const lon = Number(lonValue);
+      const scale = 256 * Math.pow(2, zoom);
+      const x = ((lon + 180) / 360) * scale;
+      const sinLat = Math.sin((lat * Math.PI) / 180);
+      const y = (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale;
+      return { x, y };
+    };
+    const { center, zoom, mapWidth, mapHeight } = v2OpsMapViewport;
+    const centerPoint = worldPoint(center.lat, center.lon, zoom);
+    return v2OpsMapPoints
+      .map((point) => {
+        const coords = sanitizeLatLon(point.lat, point.lon);
+        if (!coords) return null;
+        const pt = worldPoint(coords.lat, coords.lon, zoom);
+        const xPx = pt.x - centerPoint.x + mapWidth / 2;
+        const yPx = pt.y - centerPoint.y + mapHeight / 2;
+        const xPct = (xPx / mapWidth) * 100;
+        const yPct = (yPx / mapHeight) * 100;
+        if (xPct < -20 || xPct > 120 || yPct < -20 || yPct > 120) return null;
+        return { ...point, xPct, yPct };
+      })
+      .filter(Boolean);
+  }, [v2OpsMapPoints, v2OpsMapViewport]);
+
+  const v2OpsStaticMapUrls = useMemo(() => {
+    const formatCoord = (value) => Number(value).toFixed(4);
+    const { center, zoom, mapWidth, mapHeight } = v2OpsMapViewport;
+    const osmParams = new URLSearchParams();
+    osmParams.set("center", `${formatCoord(center.lat)},${formatCoord(center.lon)}`);
+    osmParams.set("zoom", String(zoom));
+    osmParams.set("size", `${mapWidth}x${mapHeight}`);
+    osmParams.set("maptype", "mapnik");
+    const osmStatic = `https://staticmap.openstreetmap.de/staticmap.php?${osmParams.toString()}`;
+
+    const yandexWidth = 650;
+    const yandexHeight = Math.max(200, Math.round((yandexWidth * mapHeight) / mapWidth));
+    const yandexParams = new URLSearchParams();
+    yandexParams.set("lang", "en_US");
+    yandexParams.set("ll", `${formatCoord(center.lon)},${formatCoord(center.lat)}`);
+    yandexParams.set("z", String(zoom));
+    yandexParams.set("size", `${yandexWidth},${yandexHeight}`);
+    yandexParams.set("l", "map");
+    const yandexStatic = `https://static-maps.yandex.ru/1.x/?${yandexParams.toString()}`;
+
+    return [osmStatic, yandexStatic];
+  }, [v2OpsMapViewport]);
+
+  const v2OpsStaticMapUrl = useMemo(() => {
+    if (!v2OpsStaticMapUrls.length) return "";
+    const safeIndex = Math.min(Math.max(v2MapProviderIndex, 0), v2OpsStaticMapUrls.length - 1);
+    return v2OpsStaticMapUrls[safeIndex];
+  }, [v2MapProviderIndex, v2OpsStaticMapUrls]);
+
   useEffect(() => {
-    if (!v2SectionOpen.opsBoard || v2OpsMapPoints.length === 0) return;
+    setV2MapProviderIndex(0);
+  }, [v2OpsFocusPointId, v2ThreatCountry, v2OpsMapPoints.length]);
+
+  useEffect(() => {
+    if (versionTab !== "v2") return;
     const container = v2OpsMapContainerRef.current;
     if (!container || v2OpsLeafletMapRef.current) return;
+
+    const fallback = sanitizeLatLon(selectedOpsCountryDef?.lat, selectedOpsCountryDef?.lon) || { lat: 24.4539, lon: 54.3773 };
     const map = L.map(container, {
-      center: [24.4539, 54.3773],
-      zoom: 5,
-      minZoom: 3,
-      maxZoom: 13,
-      worldCopyJump: true,
       zoomControl: true,
       attributionControl: true,
+      preferCanvas: true,
     });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>',
-      maxZoom: 19,
+      maxZoom: 18,
+      minZoom: 2,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(map);
-    const layer = L.layerGroup().addTo(map);
+    map.setView([fallback.lat, fallback.lon], 4, { animate: false });
+
+    const pointsLayer = L.layerGroup().addTo(map);
     v2OpsLeafletMapRef.current = map;
-    v2OpsLeafletLayerRef.current = layer;
-    // Ensure first paint after dynamic mount is correctly sized.
-    setTimeout(() => map.invalidateSize(), 0);
+    v2OpsLeafletLayerRef.current = pointsLayer;
+
+    const invalidate = () => {
+      try {
+        map.invalidateSize({ pan: false, animate: false });
+      } catch {
+        // ignore invalidate race on unmount
+      }
+    };
+    setTimeout(invalidate, 120);
+    window.addEventListener("resize", invalidate);
+
     return () => {
-      layer.clearLayers();
-      map.remove();
+      window.removeEventListener("resize", invalidate);
       v2OpsLeafletLayerRef.current = null;
       v2OpsLeafletMapRef.current = null;
+      map.remove();
     };
-  }, [v2SectionOpen.opsBoard, v2OpsMapPoints.length]);
+  }, [versionTab, selectedOpsCountryDef?.lat, selectedOpsCountryDef?.lon]);
 
   useEffect(() => {
     const map = v2OpsLeafletMapRef.current;
-    const layer = v2OpsLeafletLayerRef.current;
-    if (!map || !layer) return;
-    layer.clearLayers();
+    if (!map || versionTab !== "v2") return;
+    const fallback = sanitizeLatLon(selectedOpsCountryDef?.lat, selectedOpsCountryDef?.lon) || { lat: 24.4539, lon: 54.3773 };
+    const focusCoords = sanitizeLatLon(v2OpsFocusPoint?.lat, v2OpsFocusPoint?.lon);
+    const center = focusCoords || fallback;
+    const zoom = focusCoords ? 5 : 4;
+    map.setView([center.lat, center.lon], zoom, { animate: false });
+    setTimeout(() => {
+      try {
+        map.invalidateSize({ pan: false, animate: false });
+      } catch {
+        // ignore invalidate race on unmount
+      }
+    }, 0);
+  }, [
+    versionTab,
+    v2SectionOpen.opsBoard,
+    selectedOpsCountryDef?.lat,
+    selectedOpsCountryDef?.lon,
+    v2OpsFocusPoint?.lat,
+    v2OpsFocusPoint?.lon,
+  ]);
+
+  useEffect(() => {
+    const map = v2OpsLeafletMapRef.current;
+    const pointsLayer = v2OpsLeafletLayerRef.current;
+    if (!map || !pointsLayer || versionTab !== "v2") return;
+
+    pointsLayer.clearLayers();
     for (const point of v2OpsMapPoints) {
       const coords = sanitizeLatLon(point.lat, point.lon);
       if (!coords) continue;
-      const markerClass = `v2-map-marker-dot ${point.type} ${v2OpsFocusPoint?.id === point.id ? "active" : ""}`;
+      const isActive = point.id === v2OpsFocusPointId;
+      const dotClass = `v2-map-marker-dot ${point.type} ${isActive ? "active" : ""}`;
       const marker = L.marker([coords.lat, coords.lon], {
         icon: L.divIcon({
           className: "v2-map-div-icon",
-          html: `<span class="${markerClass}">${point.icon || opsTypeIcon(point.type)}</span>`,
+          html: `<div class="${dotClass}">${point.icon || opsTypeIcon(point.type)}</div>`,
           iconSize: [28, 28],
           iconAnchor: [14, 14],
         }),
+        title: point.label,
+        keyboard: true,
       });
-      marker.on("mouseover", () => setV2OpsHoveredPointId(point.id));
-      marker.on("mouseout", () => setV2OpsHoveredPointId(null));
       marker.on("click", () => {
         setV2OpsFocusPointId(point.id);
-        setV2OpsHoveredPointId(point.id);
-        if (point.rowId) focusV2Story(point.rowId, { scroll: false, flash: false });
-        if (point.type === "threat") {
-          const country = point.id.replace("threat-", "");
+        if (String(point.id).startsWith("threat-")) {
+          const country = String(point.id).replace("threat-", "");
           if (country) setV2ThreatCountry(country);
         }
+        if (point.rowId) {
+          setV2FocusedEventId(point.rowId);
+          setSeenEventIds((prev) => (prev.includes(point.rowId) ? prev : [...prev, point.rowId]));
+          setV2SelectedEventIds((prev) => (prev.includes(point.rowId) ? prev : [point.rowId, ...prev]));
+        }
       });
-      marker.addTo(layer);
+      const tooltipText = [point.label, point.sub].filter(Boolean).join(" | ");
+      if (tooltipText) {
+        marker.bindTooltip(tooltipText, { direction: "top", offset: [0, -10], opacity: 0.9 });
+      }
+      marker.addTo(pointsLayer);
     }
-  }, [v2OpsMapPoints, v2OpsFocusPoint, v2SectionOpen.opsBoard]);
-
-  useEffect(() => {
-    const map = v2OpsLeafletMapRef.current;
-    if (!map || !v2OpsFocusPoint) return;
-    const coords = sanitizeLatLon(v2OpsFocusPoint.lat, v2OpsFocusPoint.lon);
-    if (!coords) return;
-    const currentZoom = map.getZoom();
-    const targetZoom = Math.max(5, currentZoom);
-    map.flyTo([coords.lat, coords.lon], targetZoom, { duration: 0.45 });
-  }, [v2OpsFocusPoint]);
-
-  useEffect(() => {
-    const map = v2OpsLeafletMapRef.current;
-    if (!map || !v2SectionOpen.opsBoard) return;
-    const timer = setTimeout(() => map.invalidateSize(), 140);
-    return () => clearTimeout(timer);
-  }, [v2SectionOpen.opsBoard, v2OpsMapPoints.length]);
+  }, [versionTab, v2OpsMapPoints, v2OpsFocusPointId]);
 
   useEffect(() => {
     const valid = new Set(v2Events.map((row) => row.id));
@@ -5485,7 +6236,10 @@ export default function App() {
   }, [predictionViewMode, predictionOperationalCards, predictionExecSectionKeys]);
 
   const activeVideoSource = useMemo(
-    () => skyVideoSources.find((row) => row.id === selectedVideoSourceId) || skyVideoSources[0],
+    () =>
+      skyVideoSources.find((row) => row.id === selectedVideoSourceId) ||
+      skyVideoSources.find((row) => row.id === DEFAULT_VIDEO_SOURCE_ID) ||
+      skyVideoSources[0],
     [selectedVideoSourceId]
   );
   const activeVideoEmbeds = useMemo(() => videoEmbedCandidates(activeVideoSource), [activeVideoSource]);
@@ -5526,16 +6280,9 @@ export default function App() {
   );
 
   const openAiConnected = aiStatus.configured && aiStatus.connected && privacy.openai_enabled;
-  const jsonCargoState = cleanText(jsonCargoStatus.state || "unknown").toLowerCase();
-  const jsonCargoQuotaExceeded = jsonCargoState === "quota_exceeded";
-  const jsonCargoConnected = jsonCargoState === "ok";
-  const jsonCargoStatusLabel = jsonCargoQuotaExceeded
-    ? "Quota Exceeded"
-    : jsonCargoConnected
-      ? "Connected"
-      : jsonCargoState === "not_configured"
-        ? "Not Configured"
-        : jsonCargoStatus.message || "Unavailable";
+  const xState = cleanText(xStatus.state || "unknown").toLowerCase();
+  const xConnected = xState === "ok";
+  const xStatusLabel = xConnected ? "Connected" : "Disconnected";
   const liveIngestionConnected = useMemo(() => {
     if (ingestionRunning) return true;
     if (!lastSync) return false;
@@ -5749,16 +6496,24 @@ export default function App() {
     }
   }
 
+  function focusV2OpsPoint(point, options = {}) {
+    if (!point?.id) return;
+    const { focusStory = true } = options;
+    setV2OpsFocusPointId(point.id);
+    if (String(point.id).startsWith("threat-")) {
+      const country = String(point.id).replace("threat-", "");
+      if (country) setV2ThreatCountry(country);
+    }
+    if (focusStory && point.rowId) {
+      focusV2Story(point.rowId, { scroll: false, flash: false });
+    }
+  }
+
   function focusV2OpsEvent(eventId) {
     if (!eventId) return;
     const point = v2OpsPointByRowId.get(eventId);
     if (point) {
-      setV2OpsFocusPointId(point.id);
-      setV2OpsHoveredPointId(point.id);
-      if (point.type === "threat") {
-        const country = point.id.replace("threat-", "");
-        if (country) setV2ThreatCountry(country);
-      }
+      focusV2OpsPoint(point, { focusStory: false });
     }
     focusV2Story(eventId, { scroll: false, flash: false });
   }
@@ -5773,6 +6528,7 @@ export default function App() {
       setError("لا توجد مساحة تحليل نشطة.");
       return;
     }
+    setError("");
     setSubmittingInsight(true);
     try {
       const baseIds = v2SelectedEventIds.length > 0 ? v2SelectedEventIds : v2Events.slice(0, 30).map((row) => row.id);
@@ -5808,7 +6564,7 @@ export default function App() {
       });
       await loadAll();
     } catch (err) {
-      setError(err.message || "فشل تحليل عناصر V2.");
+      showUiError(err, "فشل تحليل عناصر V2.");
     } finally {
       setSubmittingInsight(false);
     }
@@ -5864,7 +6620,7 @@ export default function App() {
       setPredictionNote("");
       await loadAll();
     } catch (err) {
-      setError(err.message || "فشل إنشاء تذكرة التوقع.");
+      showUiError(err, "فشل إنشاء تذكرة التوقع.");
     } finally {
       setCreatingPrediction(false);
     }
@@ -5893,7 +6649,7 @@ export default function App() {
       setPredictionNote("");
       await loadAll();
     } catch (err) {
-      setError(err.message || "فشل تحديث التوقع.");
+      showUiError(err, "فشل تحديث التوقع.");
     } finally {
       setUpdatingPrediction(false);
     }
@@ -5911,7 +6667,7 @@ export default function App() {
       setPredictionNote("");
       await loadAll();
     } catch (err) {
-      setError(err.message || "فشل تحديث نتيجة التوقع.");
+      showUiError(err, "فشل تحديث نتيجة التوقع.");
     } finally {
       setUpdatingPrediction(false);
     }
@@ -5928,7 +6684,7 @@ export default function App() {
       }
       await loadAll();
     } catch (err) {
-      setError(err.message || "فشل حذف التذكرة.");
+      showUiError(err, "فشل حذف التذكرة.");
     } finally {
       setDeletingPredictionId(null);
     }
@@ -5948,19 +6704,47 @@ export default function App() {
       setPredictionUpdates([]);
       await loadAll();
     } catch (err) {
-      setError(err.message || "فشل مسح سجل التذاكر.");
+      showUiError(err, "فشل مسح سجل التذاكر.");
     } finally {
       setClearingPredictionTickets(false);
     }
   }
 
+  async function runAutoOcrBackfill({ force = false, limit = 300, silent = true } = {}) {
+    if (ocrBackfillRunning) return;
+    setOcrBackfillRunning(true);
+    if (!silent) setOcrBackfillStatus("");
+    try {
+      const result = await apiPost(`/ingest/ocr/backfill?hours=720&limit=${Math.max(50, Math.min(1200, Number(limit) || 300))}&force=${force ? "true" : "false"}`);
+      const scanned = Number(result?.scanned || 0);
+      const updated = Number(result?.updated || 0);
+      const failed = Number(result?.failed || 0);
+      const skipped = Number(result?.skipped || 0);
+      const available = Boolean(result?.ocr_available);
+      if (!available) {
+        setOcrBackfillStatus("OCR التلقائي غير متاح: تحقق من OPENAI_API_KEY و AI_PRIVACY_MODE.");
+      } else {
+        setOcrBackfillStatus(`OCR تلقائي: فحص ${scanned} | تحديث ${updated} | تخطي ${skipped} | فشل ${failed}`);
+      }
+    } catch (err) {
+      if (!silent) {
+        setError(err.message || "فشل تشغيل OCR للصور.");
+      }
+      setOcrBackfillStatus("OCR تلقائي: تعذر التشغيل.");
+    } finally {
+      setOcrBackfillRunning(false);
+    }
+  }
+
   async function triggerIngestion() {
+    setError("");
     setIngestionRunning(true);
     try {
       await apiPost("/ingest/run?force=true");
+      await runAutoOcrBackfill({ force: false, limit: 300, silent: true });
       await loadAll();
     } catch (err) {
-      setError(err.message || "فشل تشغيل السحب.");
+      showUiError(err, "فشل تشغيل السحب.");
     } finally {
       setIngestionRunning(false);
     }
@@ -6035,6 +6819,7 @@ export default function App() {
       return;
     }
     setSubmittingChat(true);
+    setError("");
     try {
       const response = await apiPost("/ai/chat", {
         message:
@@ -6054,7 +6839,7 @@ export default function App() {
       }
       await loadAll();
     } catch (err) {
-      setError(err.message || "فشل التحليل السريع.");
+      showUiError(err, "فشل التحليل السريع.");
     } finally {
       setSubmittingChat(false);
     }
@@ -6065,6 +6850,7 @@ export default function App() {
     const message = chatInput.trim();
     if (!message || submittingChat) return;
     setSubmittingChat(true);
+    setError("");
     try {
       const response = await apiPost("/ai/chat", { message, event_ids: chatEventIds });
       if (response?.message?.content) {
@@ -6077,7 +6863,7 @@ export default function App() {
       setChatInput("");
       await loadAll();
     } catch (err) {
-      setError(err.message || "فشل إرسال الرسالة.");
+      showUiError(err, "فشل إرسال الرسالة.");
     } finally {
       setSubmittingChat(false);
     }
@@ -6118,6 +6904,7 @@ export default function App() {
       return;
     }
     setSubmittingInsight(true);
+    setError("");
     try {
       const insight = await apiPost("/ai/insights", {
         title: analysisTitle.trim() || "تحليل تشغيلي",
@@ -6132,7 +6919,7 @@ export default function App() {
       setAnalysisPrompt("");
       await loadAll();
     } catch (err) {
-      setError(err.message || "فشل إنشاء التحليل.");
+      showUiError(err, "فشل إنشاء التحليل.");
     } finally {
       setSubmittingInsight(false);
     }
@@ -6159,6 +6946,7 @@ export default function App() {
       return;
     }
     setSubmittingInsight(true);
+    setError("");
     try {
       const insight = await apiPost("/ai/insights", {
         title: query ? `تحليل: ${normalizeLegacyText(query)}` : "تحليل شامل",
@@ -6174,7 +6962,7 @@ export default function App() {
       });
       await loadAll();
     } catch (err) {
-      setError(err.message || "فشل تحليل النتائج.");
+      showUiError(err, "فشل تحليل النتائج.");
     } finally {
       setSubmittingInsight(false);
     }
@@ -6182,9 +6970,13 @@ export default function App() {
 
   async function publishReportFromInsight(insightId, title) {
     if (publishingReport) return;
+    setError("");
     setPublishingReport(true);
     try {
       const report = await apiPost("/ai/reports/publish", { insight_id: insightId, title });
+      if (!report?.report_id) {
+        throw new Error("تعذر إنشاء التقرير: لم يتم استلام معرف التقرير.");
+      }
       setReports((prev) =>
         [report, ...prev.filter((x) => x.report_id !== report.report_id)]
           .filter((row) => !isLegacyHistoryRow(row))
@@ -6196,8 +6988,9 @@ export default function App() {
         createdAt: report?.created_at || null
       });
       await downloadReport(report.report_id);
+      await loadAll();
     } catch (err) {
-      setError(err.message || "فشل نشر التقرير.");
+      showUiError(err, "فشل نشر التقرير.");
     } finally {
       setPublishingReport(false);
     }
@@ -6209,6 +7002,7 @@ export default function App() {
       setError("لا توجد أحداث ضمن الفلتر الحالي لنشر تقرير عنها.");
       return;
     }
+    setError("");
     setPublishingReport(true);
     try {
       const report = await apiPost("/ai/reports/publish", {
@@ -6216,6 +7010,9 @@ export default function App() {
         prompt: query ? `أنشئ تقريراً تنفيذياً عن ${normalizeLegacyText(query)}.` : "أنشئ تقرير الحالة العامة مع توصيات.",
         event_ids: analysisEventIds
       });
+      if (!report?.report_id) {
+        throw new Error("تعذر إنشاء التقرير: لم يتم استلام معرف التقرير.");
+      }
       setReports((prev) =>
         [report, ...prev.filter((x) => x.report_id !== report.report_id)]
           .filter((row) => !isLegacyHistoryRow(row))
@@ -6227,21 +7024,70 @@ export default function App() {
         createdAt: report?.created_at || null
       });
       await downloadReport(report.report_id);
+      await loadAll();
     } catch (err) {
-      setError(err.message || "فشل نشر التقرير.");
+      showUiError(err, "فشل نشر التقرير.");
     } finally {
       setPublishingReport(false);
     }
   }
 
   async function downloadReport(reportId) {
-    try {
-      const { blob, filename } = await apiDownload(`/ai/reports/${reportId}/download`);
-      downloadBlob(filename || `${reportId}.pdf`, blob);
-    } catch (err) {
-      setError(err.message || "فشل تنزيل التقرير.");
+    const attempts = [
+      { format: "doc", fallback: `${reportId}.doc` },
+      { format: "pdf", fallback: `${reportId}.pdf` },
+      { format: "md", fallback: `${reportId}.md` },
+    ];
+    let lastError = null;
+    for (const attempt of attempts) {
+      try {
+        const { blob, filename } = await apiDownload(`/ai/reports/${reportId}/download?format=${attempt.format}`);
+        downloadBlob(filename || attempt.fallback, blob);
+        return;
+      } catch (err) {
+        lastError = err;
+      }
     }
+    showUiError(lastError, "فشل تنزيل التقرير.");
   }
+
+  const activeProgress = useMemo(() => {
+    if (ingestionRunning) return { title: "جارٍ السحب الفوري", detail: "يتم سحب آخر المدخلات من المصادر." };
+    if (ocrBackfillRunning) return { title: "جارٍ تحليل صور OCR", detail: "يتم استخراج الأرقام من الصور الرسمية." };
+    if (publishingReport) return { title: "جارٍ إنشاء التقرير", detail: "يتم تجهيز التقرير وتنزيل الملف (DOC/PDF)." };
+    if (submittingInsight) return { title: "جارٍ التحليل الذكي", detail: "يتم تحليل الأحداث وإعداد المخرجات." };
+    if (submittingChat) return { title: "جارٍ تنفيذ طلب المساعد", detail: "يتم تجهيز الرد اعتمادًا على السياق المحدد." };
+    if (creatingPrediction) return { title: "جارٍ إنشاء تذكرة التوقع", detail: "يتم بناء التذكرة وربطها بالأحداث." };
+    if (updatingPrediction) return { title: "جارٍ تحديث التوقع", detail: "يتم حفظ الملاحظات/النتيجة الحالية." };
+    if (clearingPredictionTickets) return { title: "جارٍ مسح سجل التذاكر", detail: "يتم حذف العناصر المحددة من السجل." };
+    if (savingPredictionReviewConfig) return { title: "جارٍ تحديث إعدادات المراجعة", detail: "يتم حفظ إعدادات المراجعة الآلية." };
+    if (deletingPredictionId) return { title: "جارٍ حذف تذكرة", detail: "يتم حذف التذكرة المختارة من النظام." };
+    return null;
+  }, [
+    ingestionRunning,
+    ocrBackfillRunning,
+    publishingReport,
+    submittingInsight,
+    submittingChat,
+    creatingPrediction,
+    updatingPrediction,
+    clearingPredictionTickets,
+    savingPredictionReviewConfig,
+    deletingPredictionId,
+  ]);
+
+  useEffect(() => {
+    if (hasPageAccess(versionTab)) return;
+    setVersionTab(firstAllowedPage);
+  }, [versionTab, hasPageAccess, firstAllowedPage]);
+
+  const noAccessFeature =
+    typeof error === "string" &&
+    (error.includes("لا تملك صلاحية الوصول لهذه الميزة") ||
+      error.includes("لا تملك صلاحية الوصول لهذه الصفحة") ||
+      /requires\s+v2\s+access/i.test(error) ||
+      /access denied/i.test(error));
+  const noAccessCurrentTab = !hasPageAccess(versionTab);
 
   return (
     <div className="page-shell" dir="rtl" lang="ar">
@@ -6261,13 +7107,10 @@ export default function App() {
             <strong>OpenAI</strong>
             <small>{openAiConnected ? "Connected" : "Disconnected"}</small>
           </div>
-          <div
-            className={`openai-status ${jsonCargoQuotaExceeded ? "warning" : ""}`}
-            title={jsonCargoStatus.detail || jsonCargoStatus.message || "JSONCargo status"}
-          >
-            <span className={`status-dot ${jsonCargoConnected ? "online" : jsonCargoQuotaExceeded ? "warn" : "offline"}`} />
-            <strong>JSONCargo</strong>
-            <small>{jsonCargoStatusLabel}</small>
+          <div className="openai-status" title={xStatus.detail || xStatus.message || "X status"}>
+            <span className={`status-dot ${xConnected ? "online" : "offline"}`} />
+            <strong>X</strong>
+            <small>{xStatusLabel}</small>
           </div>
           <span className="sync">آخر مزامنة: {formatTime(lastSync)}</span>
         </div>
@@ -6288,32 +7131,80 @@ export default function App() {
           <h2>وضع المنصة</h2>
         </div>
         <div className="version-tabs">
-          <button className={`tab-btn ${versionTab === "v1" ? "active" : ""}`} type="button" onClick={() => setVersionTab("v1")}>
+          <button
+            className={`tab-btn ${versionTab === "v1" ? "active" : ""}`}
+            type="button"
+            onClick={() => setVersionTab("v1")}
+            disabled={!hasPageAccess("v1")}
+            title={!hasPageAccess("v1") ? "لا تملك صلاحية V1" : ""}
+          >
             اخر الاخبار
           </button>
-          <button className={`tab-btn ${versionTab === "v2" ? "active" : ""}`} type="button" onClick={() => setVersionTab("v2")}>
+          <button
+            className={`tab-btn ${versionTab === "v2" ? "active" : ""}`}
+            type="button"
+            onClick={() => setVersionTab("v2")}
+            disabled={!hasPageAccess("v2")}
+            title={!hasPageAccess("v2") ? "لا تملك صلاحية V2" : ""}
+          >
             خلية الذكاء الاصطناعي
+          </button>
+          <button
+            className={`tab-btn ${versionTab === "xintel" ? "active" : ""}`}
+            type="button"
+            onClick={() => setVersionTab("xintel")}
+            disabled={!hasPageAccess("xintel")}
+            title={!hasPageAccess("xintel") ? "لا تملك صلاحية X Narrative" : ""}
+          >
+            X Narrative Intelligence
           </button>
         </div>
       </section>
 
-      {versionTab === "v1" ? (
-        <>
       {error ? <div className="error-banner">{error}</div> : null}
+      {activeProgress ? (
+        <div className="progress-banner" role="status" aria-live="polite">
+          <span className="progress-spinner" aria-hidden="true" />
+          <div className="progress-banner-text">
+            <strong>{activeProgress.title}</strong>
+            <small>{activeProgress.detail}</small>
+          </div>
+        </div>
+      ) : null}
+      {noAccessFeature ? (
+        <section className="panel access-denied-panel">
+          <h3>الوصول محدود</h3>
+          <p>حسابك الحالي على V1. هذه الميزة متاحة لمستخدمي V2 فقط. يرجى طلب الترقية من مسؤول النظام.</p>
+          <button className="btn btn-small" type="button" onClick={() => setVersionTab("v1")}>
+            العودة إلى واجهة V1
+          </button>
+        </section>
+      ) : null}
+      {noAccessCurrentTab ? (
+        <section className="panel access-denied-panel">
+          <h3>الوصول محدود</h3>
+          <p>لا تملك صلاحية الوصول إلى هذا القسم. يرجى التواصل مع مسؤول النظام لإضافة صلاحية الصفحة المطلوبة.</p>
+          <button className="btn btn-small" type="button" onClick={() => setVersionTab(firstAllowedPage)}>
+            العودة إلى القسم المسموح
+          </button>
+        </section>
+      ) : null}
 
+      {!noAccessCurrentTab && versionTab === "v1" ? (
+        <>
       <section className="panel command-toolbar">
         <div className="command-groups">
           <div className="command-group">
             <small className="command-label">الإجراءات السريعة</small>
             <div className="quick-topics">
-              <button className="btn btn-accent" type="button" onClick={triggerIngestion}>
-                تحديث فوري
+              <button className="btn btn-accent" type="button" onClick={triggerIngestion} disabled={ingestionRunning}>
+                {ingestionRunning ? "جارٍ السحب..." : "تحديث فوري"}
               </button>
               <button className="btn btn-accent" type="button" onClick={analyzeCurrentResults} disabled={submittingInsight}>
                 {submittingInsight ? "جارٍ التحليل..." : analysisSelectionCount > 0 ? `تحليل ذكي (${analysisSelectionCount})` : "تحليل ذكي (عام)"}
               </button>
               <button className="btn btn-ghost" type="button" onClick={publishFromCurrentFilter} disabled={publishingReport}>
-                نشر تقرير
+                {publishingReport ? "جارٍ إنشاء التقرير..." : "نشر تقرير"}
               </button>
             </div>
           </div>
@@ -6326,7 +7217,15 @@ export default function App() {
               <button className="btn btn-ghost" type="button" onClick={() => setSourceDrawerOpen((prev) => !prev)}>
                 {sourceDrawerOpen ? "إخفاء المصادر" : "المصادر والربط"}
               </button>
-              <button className="btn btn-small" type="button" onClick={() => setVersionTab("v2")}>
+              <button
+                className="btn btn-small"
+                type="button"
+                onClick={() =>
+                  hasPageAccess("v2")
+                    ? setVersionTab("v2")
+                    : setError("لا تملك صلاحية الوصول إلى خلية الذكاء الاصطناعي. يرجى طلب صلاحية V2 من المسؤول.")
+                }
+              >
                 الانتقال إلى خلية الذكاء الاصطناعي
               </button>
             </div>
@@ -6565,6 +7464,12 @@ export default function App() {
             </div>
           </div>
           <div className="source-list drawer-list">
+            {visibleSources.length === 0 ? (
+              <div className="ui-state ui-state-empty source-list-empty" role="status">
+                <strong>لا توجد مصادر في هذه الصفحة</strong>
+                <p>جرّب تغيير الصفحة أو إضافة مصدر جديد من نموذج "إضافة مصدر جديد".</p>
+              </div>
+            ) : null}
             {visibleSources.map((source) => (
               <article className="source-item" key={source.id}>
                 <div className="source-item-body">
@@ -7121,7 +8026,7 @@ export default function App() {
                             onClick={() => publishReportFromInsight(insight.id, insight.title)}
                             disabled={publishingReport}
                           >
-                            نشر تقرير
+                            {publishingReport ? "جارٍ النشر..." : "نشر تقرير"}
                           </button>
                         </div>
                         <small>{formatTime(insight.created_at)}</small>
@@ -7155,7 +8060,7 @@ export default function App() {
                               قراءة التقرير
                             </button>
                             <button className="btn btn-small" type="button" onClick={() => downloadReport(report.report_id)}>
-                              تنزيل PDF
+                              تنزيل التقرير
                             </button>
                           </div>
                           <small>
@@ -7174,387 +8079,80 @@ export default function App() {
       </main>
 
         </>
-      ) : (
+      ) : !noAccessCurrentTab && versionTab === "v2" ? (
         <section className="v2-command-center">
           <article className="panel v2-head">
             <div className="panel-head">
               <h2>مركز العمليات السردي V2</h2>
-              <span>عرض مباشر: ماذا حدث | لماذا مهم | ماذا نراقب تالياً</span>
-            </div>
-            <div className="v2-action-groups">
-              <div className="v2-action-group">
-                <small className="command-label">تشغيل</small>
-                <div className="quick-topics">
-                  <button className="btn btn-accent" type="button" onClick={triggerIngestion}>
-                    تحديث فوري
-                  </button>
-                  <button className="btn btn-small" type="button" onClick={focusV2OpsBoard}>
-                    لوحة الحركة الجديدة
-                  </button>
-                  <button className="btn btn-small" type="button" onClick={() => setVersionTab("v1")}>
-                    العودة إلى V1
-                  </button>
-                </div>
-              </div>
-              <div className="v2-action-group">
-                <small className="command-label">تصفية</small>
-                <div className="quick-topics">
-                  <button className={`btn btn-small ${v2TrustedOnly ? "active" : ""}`} type="button" onClick={() => setV2TrustedOnly((prev) => !prev)}>
-                    {v2TrustedOnly ? "مصادر موثوقة فقط" : "كل المصادر"}
-                  </button>
-                  <button className={`btn btn-small ${v2UnreadOnly ? "active" : ""}`} type="button" onClick={() => setV2UnreadOnly((prev) => !prev)}>
-                    {v2UnreadOnly ? "إظهار الكل" : "غير المقروء فقط"}
-                  </button>
-                </div>
-              </div>
-              <div className="v2-action-group">
-                <small className="command-label">تحليل</small>
-                <div className="quick-topics">
-                  <button className="btn btn-small btn-accent" type="button" onClick={analyzeV2Selected} disabled={submittingInsight}>
-                    {submittingInsight ? "جارٍ التحليل..." : `تحليل المحدد في V2 (${v2SelectedEventIds.length})`}
-                  </button>
-                </div>
+              <div className="v2-section-meta">
+                <button className="btn btn-small btn-ghost section-collapse-btn" type="button" onClick={() => toggleV2Section("head")}>
+                  {sectionToggleLabel(v2SectionOpen.head)}
+                </button>
               </div>
             </div>
-            <div className="v2-lanes">
-              <button className={`btn btn-small lane-btn ${v2Lane === "all" ? "active" : ""}`} type="button" onClick={() => setV2Lane("all")}>
-                كل المسارات ({v2LaneStats.all?.total || 0})
-                {v2LaneStats.all?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
-              </button>
-              <button className={`btn btn-small lane-btn ${v2Lane === "geo" ? "active" : ""}`} type="button" onClick={() => setV2Lane("geo")}>
-                جيوسياسي ({v2LaneStats.geo?.total || 0})
-                {v2LaneStats.geo?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
-              </button>
-              <button className={`btn btn-small lane-btn ${v2Lane === "cyber" ? "active" : ""}`} type="button" onClick={() => setV2Lane("cyber")}>
-                سيبراني ({v2LaneStats.cyber?.total || 0})
-                {v2LaneStats.cyber?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
-              </button>
-              <button className={`btn btn-small lane-btn ${v2Lane === "marine" ? "active" : ""}`} type="button" onClick={() => setV2Lane("marine")}>
-                ملاحي ({v2LaneStats.marine?.total || 0})
-                {v2LaneStats.marine?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
-              </button>
-              <button className={`btn btn-small lane-btn ${v2Lane === "air" ? "active" : ""}`} type="button" onClick={() => setV2Lane("air")}>
-                جوي ({v2LaneStats.air?.total || 0})
-                {v2LaneStats.air?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
-              </button>
-            </div>
+            {v2SectionOpen.head ? (
+              <>
+                <div className="v2-action-groups">
+                  <div className="v2-action-group">
+                    <small className="command-label">تشغيل</small>
+                    <div className="quick-topics">
+                      <button className="btn btn-accent" type="button" onClick={triggerIngestion} disabled={ingestionRunning}>
+                        {ingestionRunning ? "جارٍ السحب..." : "تحديث فوري"}
+                      </button>
+                      <button className="btn btn-small" type="button" onClick={focusV2OpsBoard}>
+                        لوحة الحركة الجديدة
+                      </button>
+                    </div>
+                    <small className="details-meta">
+                      {ocrBackfillRunning
+                        ? "OCR التلقائي جارٍ..."
+                        : ocrBackfillStatus || "OCR التلقائي مفعّل عند التحديث الفوري."}
+                    </small>
+                  </div>
+                </div>
+                <div className="v2-lanes">
+                  <button className={`btn btn-small lane-btn ${v2Lane === "all" ? "active" : ""}`} type="button" onClick={() => setV2Lane("all")}>
+                    كل المسارات ({v2LaneStats.all?.total || 0})
+                    {v2LaneStats.all?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
+                  </button>
+                  <button className={`btn btn-small lane-btn ${v2Lane === "geo" ? "active" : ""}`} type="button" onClick={() => setV2Lane("geo")}>
+                    جيوسياسي ({v2LaneStats.geo?.total || 0})
+                    {v2LaneStats.geo?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
+                  </button>
+                  <button className={`btn btn-small lane-btn ${v2Lane === "cyber" ? "active" : ""}`} type="button" onClick={() => setV2Lane("cyber")}>
+                    سيبراني ({v2LaneStats.cyber?.total || 0})
+                    {v2LaneStats.cyber?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
+                  </button>
+                  <button className={`btn btn-small lane-btn ${v2Lane === "marine" ? "active" : ""}`} type="button" onClick={() => setV2Lane("marine")}>
+                    ملاحي ({v2LaneStats.marine?.total || 0})
+                    {v2LaneStats.marine?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
+                  </button>
+                  <button className={`btn btn-small lane-btn ${v2Lane === "air" ? "active" : ""}`} type="button" onClick={() => setV2Lane("air")}>
+                    جوي ({v2LaneStats.air?.total || 0})
+                    {v2LaneStats.air?.newCount > 0 ? <span className="lane-pulse-dot" /> : null}
+                  </button>
+                </div>
+              </>
+            ) : null}
           </article>
 
           <section className="v2-grid">
-            <article className="panel v2-narrative">
-              <div className="panel-head v2-section-head">
-                <h3>القصة الحية</h3>
-                <button className="btn btn-small btn-ghost section-collapse-btn" type="button" onClick={() => toggleV2Section("narrative")}>
-                  {sectionToggleLabel(v2SectionOpen.narrative)}
-                </button>
-              </div>
-              {v2SectionOpen.narrative ? (
-                <>
-                  <p>
-                    <strong>ماذا حدث:</strong> {v2Narrative.happened}
-                  </p>
-                  <p>
-                    <strong>لماذا مهم:</strong> {v2Narrative.why}
-                  </p>
-                  <p>
-                    <strong>ماذا نراقب تالياً:</strong> {v2Narrative.next}
-                  </p>
-                </>
-              ) : null}
-            </article>
-
-            <article className="panel v2-freshness">
-              <div className="panel-head v2-section-head">
-                <h3>رادار الحداثة</h3>
-                <button className="btn btn-small btn-ghost section-collapse-btn" type="button" onClick={() => toggleV2Section("freshness")}>
-                  {sectionToggleLabel(v2SectionOpen.freshness)}
-                </button>
-              </div>
-              {v2SectionOpen.freshness ? (
-                <>
-                  <div className="v2-freshness-chips">
-                    <span className="fresh-chip live">Live {v2Freshness.live}</span>
-                    <span className="fresh-chip ten">10m {v2Freshness.ten}</span>
-                    <span className="fresh-chip hour">1h {v2Freshness.oneHour}</span>
-                    <span className="fresh-chip three">3h {v2Freshness.threeHours}</span>
-                    <span className="fresh-chip stale">3h+ {v2Freshness.stale}</span>
-                  </div>
-                  <small>كل بطاقة تبيّن عمر الخبر الفعلي لحظة العرض.</small>
-                </>
-              ) : null}
-            </article>
-
             <article ref={v2OpsBoardRef} className="panel v2-ops-board">
               <div className="panel-head v2-section-head">
-                <h3>لوحة الحركة والاعتراضات الإقليمية</h3>
+                <h3>وحدة الأثر التشغيلي</h3>
                 <div className="v2-section-meta">
-                  <span>{v2OpsRegionalEvents.length} سجل خلال النافذة</span>
+                  <span>تركيز الإمارات | Aviationstack + UN Comtrade + OSINT/X</span>
                   <button className="btn btn-small btn-ghost section-collapse-btn" type="button" onClick={() => toggleV2Section("opsBoard")}>
                     {sectionToggleLabel(v2SectionOpen.opsBoard)}
                   </button>
                 </div>
               </div>
               {v2SectionOpen.opsBoard ? (
-                <>
-                  <div className="v2-ops-toolbar">
-                    <label className="v2-filter-label">
-                      نافذة التشغيل
-                      <select value={v2OpsWindowHours} onChange={(event) => setV2OpsWindowHours(Number(event.target.value || 6))}>
-                        <option value={1}>آخر ساعة</option>
-                        <option value={3}>آخر 3 ساعات</option>
-                        <option value={6}>آخر 6 ساعات</option>
-                        <option value={12}>آخر 12 ساعة</option>
-                        <option value={24}>آخر 24 ساعة</option>
-                        <option value={48}>آخر 48 ساعة</option>
-                      </select>
-                    </label>
-                    <span className="v2-ops-meta">أدلة موثقة (وكالات/حسابات رسمية): {v2OpsOfficialEvidenceCount}</span>
-                    <button className={`btn btn-small ${safeV2OpsLayers.air ? "active" : ""}`} type="button" onClick={() => toggleV2OpsLayer("air")}>
-                      طبقة الطيران
-                    </button>
-                    <button className={`btn btn-small ${safeV2OpsLayers.marine ? "active" : ""}`} type="button" onClick={() => toggleV2OpsLayer("marine")}>
-                      طبقة الملاحة
-                    </button>
-                    <button className={`btn btn-small ${safeV2OpsLayers.threats ? "active" : ""}`} type="button" onClick={() => toggleV2OpsLayer("threats")}>
-                      طبقة التهديدات
-                    </button>
-                  </div>
-
-                  <div className="v2-ops-kpis">
-                    <article className="v2-ops-kpi">
-                      <h4>إقلاع مرصود</h4>
-                      <p>{v2OpsStats.takeoffs}</p>
-                      <small className="details-meta">رحلات صُنّفت آليًا كإقلاع محتمل ضمن النافذة الزمنية الحالية.</small>
-                    </article>
-                    <article className="v2-ops-kpi">
-                      <h4>رحلات في الجو</h4>
-                      <p>{v2OpsStats.airborne}</p>
-                      <small className="details-meta">رحلات تُظهر مؤشرات طيران نشط (ارتفاع/سرعة/حالة) في نفس النافذة.</small>
-                    </article>
-                    <article className="v2-ops-kpi v2-uae-flow-kpi">
-                      <h4>UAE Flights (In / Out / Domestic)</h4>
-                      <div className="v2-uae-flow-rows">
-                        <div className="v2-uae-flow-row incoming">
-                          <span className="v2-uae-flow-arrow">↓</span>
-                          <span className="v2-uae-flow-label">Inbound to UAE</span>
-                          <strong>{v2OpsStats.uaeIncoming || 0}</strong>
-                        </div>
-                        <div className="v2-uae-flow-row outgoing">
-                          <span className="v2-uae-flow-arrow">↑</span>
-                          <span className="v2-uae-flow-label">Outbound from UAE</span>
-                          <strong>{v2OpsStats.uaeOutgoing || 0}</strong>
-                        </div>
-                        <div className="v2-uae-flow-row domestic">
-                          <span className="v2-uae-flow-arrow">↔</span>
-                          <span className="v2-uae-flow-label">Domestic UAE</span>
-                          <strong>{v2OpsStats.uaeDomestic || 0}</strong>
-                        </div>
-                      </div>
-                      <small className="details-meta">أحمر: قادم للإمارات | أخضر: مغادر من الإمارات | أزرق: رحلة داخلية بالإمارات.</small>
-                    </article>
-                    <article className="v2-ops-kpi">
-                      <h4>سفن متحركة</h4>
-                      <p>{v2OpsStats.shipsMoving}</p>
-                      <small className="details-meta">سفن مرصودة كـمتحركة فعليًا من السرعة أو حالة الملاحة.</small>
-                    </article>
-                    <article className="v2-ops-kpi">
-                      <h4>اعتراضات معروفة</h4>
-                      <p>{v2ThreatTotals.ballistic + v2ThreatTotals.cruise + v2ThreatTotals.drones}</p>
-                      <small className="details-meta">إجمالي إشارات (بالستي + كروز + مسيّرات) بعد إزالة التكرار والقيم غير المنطقية.</small>
-                    </article>
-                    <article className="v2-ops-kpi">
-                      <h4>إشارات بحرية محللة</h4>
-                      <p>{v2OpsStats.marineIntelSignals}</p>
-                      <small className="details-meta">أخبار بحرية حية تم تحويلها إلى نقاط تشغيلية على الخريطة.</small>
-                    </article>
-                  </div>
-
-                  <div className="v2-ops-layout">
-                    <section className="detail-block v2-ops-map-card">
-                      <h4>الخريطة التشغيلية التفاعلية</h4>
-                      {v2OpsMapPoints.length > 0 ? (
-                        <>
-                          <div className="v2-ops-map-shell" onMouseLeave={() => setV2OpsHoveredPointId(null)}>
-                            <div ref={v2OpsMapContainerRef} className="v2-ops-leaflet" />
-                          </div>
-                          {v2OpsHoverPoint ? (
-                            <article className="v2-ops-hover-card">
-                              <h5>
-                                <span className="v2-ops-item-icon">{v2OpsHoverPoint.icon || opsTypeIcon(v2OpsHoverPoint.type)}</span>
-                                {v2OpsHoverPoint.label}
-                              </h5>
-                              <p>{v2OpsHoverPoint.sub}</p>
-                              <small>{v2OpsHoverPoint.note || "لا يوجد تفسير إضافي."}</small>
-                              {v2OpsActiveEvent ? (
-                                <small className="details-meta">
-                                  {displayText(v2OpsActiveEvent.source_name)} | {formatTime(eventDisplayTime(v2OpsActiveEvent))}
-                                </small>
-                              ) : null}
-                              {v2OpsActiveMedia.videoUrl ? (
-                                <div className="v2-ops-media">
-                                  {isDirectVideoUrl(v2OpsActiveMedia.videoUrl) ? (
-                                    <video src={v2OpsActiveMedia.videoUrl} controls preload="metadata" />
-                                  ) : (
-                                    <iframe
-                                      title={`ops-media-video-${v2OpsHoverPoint.id}`}
-                                      src={v2OpsActiveMedia.videoUrl}
-                                      loading="lazy"
-                                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                                      allowFullScreen
-                                    />
-                                  )}
-                                </div>
-                              ) : null}
-                              {!v2OpsActiveMedia.videoUrl && v2OpsActiveMedia.imageUrl ? (
-                                <div className="v2-ops-media">
-                                  <img src={v2OpsActiveMedia.imageUrl} alt={v2OpsHoverPoint.label} loading="lazy" />
-                                </div>
-                              ) : null}
-                              <div className="quick-topics">
-                                {v2OpsHoverPoint.rowId ? (
-                                  <button
-                                    className="btn btn-small btn-ghost"
-                                    type="button"
-                                    onClick={() => focusV2Story(v2OpsHoverPoint.rowId, { scroll: false, flash: false })}
-                                  >
-                                    ربط بالقصة
-                                  </button>
-                                ) : null}
-                                {v2OpsActiveEvent?.url ? (
-                                  <a className="btn btn-small btn-ghost source-link-btn" href={v2OpsActiveEvent.url} target="_blank" rel="noreferrer">
-                                    زيارة المصدر
-                                  </a>
-                                ) : null}
-                              </div>
-                            </article>
-                          ) : null}
-                        </>
-                      ) : (
-                        <p>لا توجد نقاط تشغيلية ضمن النافذة الحالية.</p>
-                      )}
-                    </section>
-
-                    <section className="detail-block v2-threat-card">
-                      <h4>مقارنة ديناميكية للدول (بالستي/كروز/مسيّرات)</h4>
-                      <div className="v2-threat-table-wrap">
-                        <table className="v2-threat-table">
-                          <thead>
-                            <tr>
-                              <th>الدولة</th>
-                              <th>بالستي</th>
-                              <th>كروز</th>
-                              <th>مسيّرات</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {v2ThreatRows.map((row) => (
-                              <tr
-                                key={row.country}
-                                className={row.selected ? "active" : ""}
-                                onClick={() => {
-                                  setV2ThreatCountry(row.country);
-                                  setV2OpsFocusPointId(`threat-${row.country}`);
-                                }}
-                              >
-                                <td>{row.country_ar}</td>
-                                <td>{normalizeThreatValue(row.ballistic)}</td>
-                                <td>{normalizeThreatValue(row.cruise)}</td>
-                                <td>{normalizeThreatValue(row.drones)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <small className="details-meta">
-                        القيم تراكمية منذ 27/02/2026 ولا تنخفض مع مرور الوقت. يتم حذف تكرار نفس القصة، واعتماد صيغة: أساس تراكمي رسمي + زيادات أحداث جديدة + مرصود بلا رقم. اختيار دولة من الجدول يرشّح نقاط الطيران والسفن والتهديدات على الخريطة والقوائم بالأسفل.
-                      </small>
-                    </section>
-                  </div>
-
-                  <div className="v2-ops-streams">
-                    <section className="detail-block v2-ops-stream">
-                      <h4>رحلات الطيران (على الخريطة + وسائط)</h4>
-                      <div className="v2-ops-chip-row">
-                        {Object.entries(v2OpsStats.flightTypeCounts).map(([label, count]) => (
-                          <span key={`flight-type-${label}`} className="fresh-chip ten">
-                            {label}: {count}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="v2-ops-chip-row">
-                        <span className="fresh-chip live">الإمارات قادمة: {v2OpsStats.uaeIncoming || 0}</span>
-                        <span className="fresh-chip ten">الإمارات مغادرة: {v2OpsStats.uaeOutgoing || 0}</span>
-                        <span className="fresh-chip hour">الإمارات داخلية: {v2OpsStats.uaeDomestic || 0}</span>
-                        <span className="fresh-chip live">إجمالي رحلات مرتبطة بالإمارات: {v2OpsStats.uaeTouchingCount || 0}</span>
-                      </div>
-                      <div className="v2-ops-chip-row">
-                        {Object.entries(v2OpsStats.uaeFlightTypeCounts || {}).map(([label, count]) => (
-                          <span key={`uae-flight-type-${label}`} className="fresh-chip hour">
-                            الإمارات | {label}: {count}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="v2-ops-items">
-                        {v2FlightDisplayItems.slice(0, 18).map((flight) => (
-                          <button key={`flight-snap-${flight.key}`} type="button" className="v2-ops-item-btn" onClick={() => focusV2OpsEvent(flight.row.id)}>
-                            <strong><span className="v2-ops-item-icon">{flight.point?.icon || opsTypeIcon(flight.point?.type)}</span>{flight.key}</strong>
-                            <small>
-                              {flight.flightType} | الدول: {routeArrowSummary(flight.fromCountry, flight.toCountry)} | المطارات:{" "}
-                              {routeArrowSummary(flight.fromPort, flight.toPort)}
-                            </small>
-                            <small>
-                              سرعة: {flight.speed != null ? Math.round(flight.speed) : "غير متاحة"} عقدة | ارتفاع:{" "}
-                              {flight.altitude != null ? Math.round(flight.altitude) : "غير متاح"} | التمركز: {flight.currentCountry || "غير محدد"} |{" "}
-                              {formatRelativeTime(eventDisplayTime(flight.row))}
-                            </small>
-                            <small>
-                              المصدر: {flight.sourceKind === "intel" ? "خبر جوي" : "تتبع FR24"} |{" "}
-                              {flight.media.videoUrl ? "وسائط: فيديو" : flight.media.imageUrl ? "وسائط: صورة" : "وسائط: غير متاحة"} | مرسوم على الخريطة
-                            </small>
-                          </button>
-                        ))}
-                        {v2FlightDisplayItems.length === 0 ? (
-                          <p>لا توجد رحلات مرتبطة بالدولة المختارة ({selectedOpsCountryDef?.country_ar || "غير محدد"}) ضمن النافذة الحالية.</p>
-                        ) : null}
-                      </div>
-                    </section>
-
-                    <section className="detail-block v2-ops-stream">
-                      <h4>حركة السفن (استشعار مباشر + تحليل الأخبار) على الخريطة + وسائط</h4>
-                      <div className="v2-ops-chip-row">
-                        {Object.entries(v2OpsStats.cargoTypeCounts).map(([label, count]) => (
-                          <span key={`cargo-type-${label}`} className="fresh-chip hour">
-                            {label}: {count}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="v2-ops-items">
-                        {v2ShipDisplayItems.slice(0, 22).map((ship) => (
-                          <button key={`ship-snap-${ship.key}`} type="button" className="v2-ops-item-btn" onClick={() => focusV2OpsEvent(ship.row.id)}>
-                            <strong><span className="v2-ops-item-icon">{ship.point?.icon || opsTypeIcon(ship.point?.type)}</span>{ship.key}</strong>
-                            <small>
-                              {ship.shipType} | الشحنة: {ship.cargoType} | الدول: {routeArrowSummary(ship.fromCountry, ship.toCountry)}
-                            </small>
-                            <small>
-                              الموانئ: {routeArrowSummary(ship.fromPort, ship.toPort)} | سرعة: {ship.speedKn != null ? ship.speedKn : "غير متاحة"} عقدة |{" "}
-                              {formatRelativeTime(eventDisplayTime(ship.row))}
-                            </small>
-                            <small>
-                              {ship.sourceKind === "intel" ? "مصدر: خبر محلل" : "مصدر: استشعار ملاحي مباشر"} | النوع التفصيلي:{" "}
-                              {ship.vesselTypeSpecific || "غير محدد"} | {ship.highLevel}
-                            </small>
-                            <small>
-                              {ship.media.videoUrl ? "وسائط: فيديو" : ship.media.imageUrl ? "وسائط: صورة" : "وسائط: غير متاحة"} | مرسوم على الخريطة
-                            </small>
-                          </button>
-                        ))}
-                        {v2ShipDisplayItems.length === 0 ? (
-                          <p>لا توجد سفن مرتبطة بالدولة المختارة ({selectedOpsCountryDef?.country_ar || "غير محدد"}) ضمن النافذة الحالية.</p>
-                        ) : null}
-                      </div>
-                    </section>
-                  </div>
-                </>
+                <OperationalImpactConsole
+                  events={events}
+                  trustedOnly={v2TrustedOnly}
+                  onRefreshIngestion={triggerIngestion}
+                />
               ) : null}
             </article>
 
@@ -7861,7 +8459,7 @@ export default function App() {
                       </label>
                       <div className="quick-topics">
                         <button className="btn btn-small" type="button" onClick={() => pushPredictionUpdate(selectedPredictionTicket.id)} disabled={updatingPrediction}>
-                          تحديث التوقع
+                          {updatingPrediction ? "جارٍ التحديث..." : "تحديث التوقع"}
                         </button>
                         <button className="btn btn-small" type="button" onClick={() => setPredictionOutcome(selectedPredictionTicket.id, "correct")} disabled={updatingPrediction}>
                           صحيح
@@ -7947,7 +8545,9 @@ export default function App() {
             </article>
           </section>
         </section>
-      )}
+      ) : !noAccessCurrentTab ? (
+        <XNarrativeIntelPage onError={showUiError} />
+      ) : null}
 
       {contentModal ? (
         <div className="event-modal-overlay" onClick={() => setContentModal(null)}>

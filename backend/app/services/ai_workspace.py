@@ -2,6 +2,7 @@ import json
 import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
+from html import escape as _html_escape
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,9 @@ from sqlmodel import Session, asc, delete, desc, select
 
 from app.config import settings
 from app.models import AIPredictionTicket, AIPredictionUpdate, AIChatMessage, AIInsight, Event
+from app.services.api_usage_tracker import track_openai_api_usage
+from app.services.platform_flags import is_openai_runtime_enabled
+from app.services.source_policy import filter_events_for_feature
 from app.services.sentiment import sentiment
 
 try:  # pragma: no cover - optional runtime dependency
@@ -166,19 +170,101 @@ def _register_pdf_fonts() -> tuple[str, str]:
     return final_regular, final_bold
 
 
+def _markdown_to_doc_html(title: str, markdown: str) -> str:
+    lines = str(markdown or "").splitlines()
+    html_lines: list[str] = []
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            html_lines.append("<p class='spacer'>&nbsp;</p>")
+            continue
+        if line.startswith("# "):
+            html_lines.append(f"<h1>{_html_escape(line[2:].strip())}</h1>")
+            continue
+        if line.startswith("## "):
+            html_lines.append(f"<h2>{_html_escape(line[3:].strip())}</h2>")
+            continue
+        if line.startswith("- "):
+            html_lines.append(f"<li>{_html_escape(line[2:].strip())}</li>")
+            continue
+        html_lines.append(f"<p>{_html_escape(line)}</p>")
+
+    body = "\n".join(html_lines)
+    return (
+        "<!doctype html>"
+        "<html lang='ar' dir='rtl'>"
+        "<head>"
+        "<meta charset='utf-8'/>"
+        f"<title>{_html_escape(title or 'تقرير')}</title>"
+        "<style>"
+        "body{font-family:'Segoe UI','Tahoma','Arial',sans-serif;direction:rtl;text-align:right;line-height:1.9;padding:28px;color:#0b2540;}"
+        "h1{font-size:24px;margin:0 0 14px 0;}"
+        "h2{font-size:18px;margin:16px 0 8px 0;}"
+        "p,li{font-size:13.5px;margin:4px 0;}"
+        "li{margin-right:14px;}"
+        ".spacer{height:8px;}"
+        "</style>"
+        "</head>"
+        "<body>"
+        f"{body}"
+        "</body>"
+        "</html>"
+    )
+
+
 class AIWorkspaceService:
     _status_cache_at: datetime | None = None
     _status_cache_value: dict[str, Any] | None = None
 
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        *,
+        tenant_id: int | None = None,
+        user_id: int | None = None,
+        is_super_admin: bool = False,
+    ) -> None:
         self.session = session
+        self.tenant_id = tenant_id
+        self.user_id = user_id
+        self.is_super_admin = is_super_admin
+        self._openai_runtime_enabled = is_openai_runtime_enabled(session)
         self._client = None
-        if settings.openai_api_key and not settings.ai_privacy_mode:
+        if self._openai_runtime_enabled and settings.openai_api_key and not settings.ai_privacy_mode:
             self._client = OpenAI(api_key=settings.openai_api_key)
 
+    def _scope_query(self, query, model_cls):
+        if self.tenant_id is None:
+            return query
+        if hasattr(model_cls, "tenant_id"):
+            return query.where(model_cls.tenant_id == self.tenant_id)
+        return query
+
+    def _in_scope(self, row: Any) -> bool:
+        if self.tenant_id is None:
+            return True
+        if hasattr(row, "tenant_id"):
+            return getattr(row, "tenant_id", None) == self.tenant_id
+        return True
+
+    def _reports_dir(self) -> Path:
+        base = Path(settings.reports_dir)
+        if self.is_super_admin and self.tenant_id is None:
+            return base / "global"
+        tenant_key = f"tenant-{self.tenant_id}" if self.tenant_id is not None else "tenant-unassigned"
+        user_key = f"user-{self.user_id}" if self.user_id is not None else "user-shared"
+        return base / tenant_key / user_key
+
     def openai_status(self, force: bool = False) -> dict[str, Any]:
-        configured = bool(settings.openai_api_key and not settings.ai_privacy_mode)
+        configured = bool(self._openai_runtime_enabled and settings.openai_api_key and not settings.ai_privacy_mode)
         model = (settings.openai_model or "gpt-4.1-mini").strip() or "gpt-4.1-mini"
+        if not self._openai_runtime_enabled:
+            return {
+                "configured": False,
+                "connected": False,
+                "model": model,
+                "message": "OpenAI API is disabled by super admin.",
+            }
         if not configured:
             return {
                 "configured": False,
@@ -250,13 +336,12 @@ class AIWorkspaceService:
         return payload
 
     def get_messages(self, limit: int = 100) -> list[AIChatMessage]:
-        rows = self.session.exec(
-            select(AIChatMessage).order_by(desc(AIChatMessage.created_at)).limit(limit)
-        ).all()
+        query = self._scope_query(select(AIChatMessage), AIChatMessage).order_by(desc(AIChatMessage.created_at)).limit(limit)
+        rows = self.session.exec(query).all()
         return list(reversed(rows))
 
     def delete_all_messages(self) -> int:
-        rows = self.session.exec(select(AIChatMessage)).all()
+        rows = self.session.exec(self._scope_query(select(AIChatMessage), AIChatMessage)).all()
         count = len(rows)
         for row in rows:
             self.session.delete(row)
@@ -266,17 +351,18 @@ class AIWorkspaceService:
 
     def delete_message(self, message_id: int) -> bool:
         row = self.session.get(AIChatMessage, message_id)
-        if row is None:
+        if row is None or not self._in_scope(row):
             return False
         self.session.delete(row)
         self.session.commit()
         return True
 
     def get_insights(self, limit: int = 60) -> list[AIInsight]:
-        return self.session.exec(select(AIInsight).order_by(desc(AIInsight.created_at)).limit(limit)).all()
+        query = self._scope_query(select(AIInsight), AIInsight).order_by(desc(AIInsight.created_at)).limit(limit)
+        return self.session.exec(query).all()
 
     def delete_all_insights(self) -> int:
-        rows = self.session.exec(select(AIInsight)).all()
+        rows = self.session.exec(self._scope_query(select(AIInsight), AIInsight)).all()
         count = len(rows)
         for row in rows:
             self.session.delete(row)
@@ -285,22 +371,28 @@ class AIWorkspaceService:
         return count
 
     def get_prediction_tickets(self, limit: int = 120) -> list[AIPredictionTicket]:
-        return self.session.exec(select(AIPredictionTicket).order_by(desc(AIPredictionTicket.updated_at)).limit(limit)).all()
+        query = self._scope_query(select(AIPredictionTicket), AIPredictionTicket).order_by(desc(AIPredictionTicket.updated_at)).limit(limit)
+        return self.session.exec(query).all()
 
     def get_prediction_updates(self, ticket_id: int, limit: int = 120) -> list[AIPredictionUpdate]:
-        return self.session.exec(
-            select(AIPredictionUpdate)
-            .where(AIPredictionUpdate.ticket_id == ticket_id)
+        query = self._scope_query(select(AIPredictionUpdate), AIPredictionUpdate)
+        query = (
+            query.where(AIPredictionUpdate.ticket_id == ticket_id)
             .order_by(desc(AIPredictionUpdate.created_at))
             .limit(limit)
-        ).all()
+        )
+        return self.session.exec(query).all()
 
     def delete_prediction_ticket(self, ticket_id: int) -> bool:
         ticket = self.session.get(AIPredictionTicket, ticket_id)
-        if ticket is None:
+        if ticket is None or not self._in_scope(ticket):
             return False
-        self.session.exec(delete(AIPredictionUpdate).where(AIPredictionUpdate.ticket_id == ticket_id))
-        self.session.exec(delete(AIPredictionTicket).where(AIPredictionTicket.id == ticket_id))
+        self.session.exec(
+            self._scope_query(delete(AIPredictionUpdate).where(AIPredictionUpdate.ticket_id == ticket_id), AIPredictionUpdate)
+        )
+        self.session.exec(
+            self._scope_query(delete(AIPredictionTicket).where(AIPredictionTicket.id == ticket_id), AIPredictionTicket)
+        )
         self.session.commit()
         return True
 
@@ -318,7 +410,10 @@ class AIWorkspaceService:
         rows: list[dict[str, Any]] = []
 
         def _eval_window(start: datetime | None, end: datetime | None = None) -> tuple[float, int, int, int, int]:
-            query = select(AIPredictionTicket).where(AIPredictionTicket.outcome.in_(["correct", "partial", "wrong"]))
+            query = self._scope_query(
+                select(AIPredictionTicket).where(AIPredictionTicket.outcome.in_(["correct", "partial", "wrong"])),
+                AIPredictionTicket,
+            )
             if start is not None:
                 query = query.where(AIPredictionTicket.updated_at >= start)
             if end is not None:
@@ -381,6 +476,8 @@ class AIWorkspaceService:
         now = datetime.now(timezone.utc)
 
         ticket = AIPredictionTicket(
+            tenant_id=self.tenant_id,
+            user_id=self.user_id,
             title=title.strip(),
             focus_query=focus_query.strip(),
             request_text=request_text.strip(),
@@ -399,6 +496,8 @@ class AIWorkspaceService:
         self.session.refresh(ticket)
 
         update = AIPredictionUpdate(
+            tenant_id=ticket.tenant_id,
+            user_id=self.user_id,
             ticket_id=ticket.id or 0,
             kind="initial",
             content=prediction_text,
@@ -418,7 +517,7 @@ class AIWorkspaceService:
         kind: str = "update",
     ) -> tuple[AIPredictionTicket, AIPredictionUpdate]:
         ticket = self.session.get(AIPredictionTicket, ticket_id)
-        if ticket is None:
+        if ticket is None or not self._in_scope(ticket):
             raise ValueError("Prediction ticket not found")
         events = self._load_context_events(event_ids=event_ids or [], question=ticket.focus_query, limit=36)
         prompt = (
@@ -427,6 +526,8 @@ class AIWorkspaceService:
         )
         update_text = self._generate_answer(question=prompt, events=events)
         update = AIPredictionUpdate(
+            tenant_id=ticket.tenant_id,
+            user_id=self.user_id,
             ticket_id=ticket.id or 0,
             kind=kind,
             content=update_text,
@@ -455,7 +556,7 @@ class AIWorkspaceService:
         status: str,
     ) -> tuple[AIPredictionTicket, AIPredictionUpdate]:
         ticket = self.session.get(AIPredictionTicket, ticket_id)
-        if ticket is None:
+        if ticket is None or not self._in_scope(ticket):
             raise ValueError("Prediction ticket not found")
         ticket.outcome = outcome
         ticket.status = status
@@ -463,6 +564,8 @@ class AIWorkspaceService:
         self.session.add(ticket)
         outcome_ar = self._outcome_label_ar(outcome)
         update = AIPredictionUpdate(
+            tenant_id=ticket.tenant_id,
+            user_id=self.user_id,
             ticket_id=ticket.id or 0,
             kind="outcome",
             content=f"ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂªÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂªÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©: {outcome_ar}. {note or ''}".strip(),
@@ -482,8 +585,10 @@ class AIWorkspaceService:
     ) -> list[dict[str, Any]]:
         now = datetime.now(timezone.utc)
         tickets = self.session.exec(
-            select(AIPredictionTicket)
-            .where(AIPredictionTicket.status.in_(["open", "watching"]))
+            self._scope_query(
+                select(AIPredictionTicket).where(AIPredictionTicket.status.in_(["open", "watching"])),
+                AIPredictionTicket,
+            )
             .order_by(asc(AIPredictionTicket.updated_at))
             .limit(limit)
         ).all()
@@ -551,8 +656,10 @@ class AIWorkspaceService:
                 or related_changed
             )
             last_update = self.session.exec(
-                select(AIPredictionUpdate)
-                .where(AIPredictionUpdate.ticket_id == (ticket.id or 0))
+                self._scope_query(
+                    select(AIPredictionUpdate).where(AIPredictionUpdate.ticket_id == (ticket.id or 0)),
+                    AIPredictionUpdate,
+                )
                 .order_by(desc(AIPredictionUpdate.created_at))
                 .limit(1)
             ).first()
@@ -572,6 +679,8 @@ class AIWorkspaceService:
             ticket.related_event_ids = next_related_event_ids
 
             update = AIPredictionUpdate(
+                tenant_id=ticket.tenant_id,
+                user_id=self.user_id,
                 ticket_id=ticket.id or 0,
                 kind="auto_review",
                 content=next_note,
@@ -743,7 +852,9 @@ class AIWorkspaceService:
             if related_ids_text:
                 related_ids = [int(token) for token in related_ids_text.split(",") if token.isdigit()]
                 if related_ids:
-                    rows = self.session.exec(select(Event).where(Event.id.in_(related_ids))).all()
+                    rows = self.session.exec(
+                        self._scope_query(select(Event).where(Event.id.in_(related_ids)), Event)
+                    ).all()
                     if rows:
                         min_related = min(self._as_utc(row.event_time) for row in rows)
                         if min_related < start:
@@ -803,9 +914,12 @@ class AIWorkspaceService:
         end = self._as_utc(scope["end"])
 
         rows = self.session.exec(
-            select(Event)
-            .where(Event.event_time >= start)
-            .where(Event.event_time <= end)
+            self._scope_query(
+                select(Event)
+                .where(Event.event_time >= start)
+                .where(Event.event_time <= end),
+                Event,
+            )
             .order_by(desc(Event.event_time))
             .limit(2400)
         ).all()
@@ -967,15 +1081,29 @@ class AIWorkspaceService:
 
     def chat(self, message: str, event_ids: list[int] | None = None) -> tuple[AIChatMessage, AIInsight | None]:
         clean_message = message.strip()
-        user_message = AIChatMessage(role="user", content=clean_message)
+        user_message = AIChatMessage(
+            tenant_id=self.tenant_id,
+            user_id=self.user_id,
+            role="user",
+            content=clean_message,
+        )
         self.session.add(user_message)
         self.session.commit()
         self.session.refresh(user_message)
 
-        events = self._load_context_events(event_ids=event_ids or [], question=clean_message)
+        events = self._load_context_events(
+            event_ids=event_ids or [],
+            question=clean_message,
+            feature_name="ai_news",
+        )
         answer = self._generate_answer(question=clean_message, events=events)
 
-        assistant_message = AIChatMessage(role="assistant", content=answer)
+        assistant_message = AIChatMessage(
+            tenant_id=self.tenant_id,
+            user_id=self.user_id,
+            role="assistant",
+            content=answer,
+        )
         self.session.add(assistant_message)
         self.session.commit()
         self.session.refresh(assistant_message)
@@ -990,10 +1118,16 @@ class AIWorkspaceService:
         return assistant_message, created_insight
 
     def create_insight(self, title: str, prompt: str, event_ids: list[int] | None = None) -> AIInsight:
-        events = self._load_context_events(event_ids=event_ids or [], question=prompt)
+        events = self._load_context_events(
+            event_ids=event_ids or [],
+            question=prompt,
+            feature_name="ai_news",
+        )
         content = self._generate_report(prompt=prompt, events=events)
         related_event_ids = ",".join(str(event.id) for event in events[:80] if event.id is not None)
         insight = AIInsight(
+            tenant_id=self.tenant_id,
+            user_id=self.user_id,
             title=title.strip(),
             prompt=prompt.strip(),
             content=content,
@@ -1014,7 +1148,7 @@ class AIWorkspaceService:
         insight: AIInsight | None = None
         if insight_id is not None:
             insight = self.session.get(AIInsight, insight_id)
-            if insight is None:
+            if insight is None or not self._in_scope(insight):
                 raise ValueError("Insight not found")
 
         if insight is None:
@@ -1030,7 +1164,7 @@ class AIWorkspaceService:
         report_title = (title or insight.title or "ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂªÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â± ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂªÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â ").strip()
         created_at = datetime.now(timezone.utc)
         report_id = f"{created_at.strftime('%Y%m%d%H%M%S')}-{_slug(report_title)}"
-        reports_dir = Path(settings.reports_dir)
+        reports_dir = self._reports_dir()
         reports_dir.mkdir(parents=True, exist_ok=True)
 
         related_events = self._events_from_related_ids(insight.related_event_ids)
@@ -1064,7 +1198,7 @@ class AIWorkspaceService:
         }
 
     def list_reports(self, limit: int = 40) -> list[dict[str, Any]]:
-        reports_dir = Path(settings.reports_dir)
+        reports_dir = self._reports_dir()
         if not reports_dir.exists():
             return []
         items: list[dict[str, str]] = []
@@ -1087,7 +1221,7 @@ class AIWorkspaceService:
         return items[:limit]
 
     def get_report_file(self, report_id: str, prefer_pdf: bool = True) -> Path | None:
-        reports_dir = Path(settings.reports_dir)
+        reports_dir = self._reports_dir()
         if not reports_dir.exists():
             return None
         pdf_path = reports_dir / f"{report_id}.pdf"
@@ -1125,6 +1259,7 @@ class AIWorkspaceService:
             ),
             user_payload=payload,
             max_chars=14000,
+            endpoint="/ai/translate/bulk",
         )
         if not response_text:
             return cleaned
@@ -1177,13 +1312,24 @@ class AIWorkspaceService:
                         break
         return selected
 
-    def _load_context_events(self, event_ids: list[int], question: str = "", limit: int = 90) -> list[Event]:
+    def _load_context_events(
+        self,
+        event_ids: list[int],
+        question: str = "",
+        limit: int = 90,
+        feature_name: str = "ai_news",
+    ) -> list[Event]:
         if event_ids:
-            rows = self.session.exec(select(Event).where(Event.id.in_(event_ids))).all()
+            query = self._scope_query(select(Event).where(Event.id.in_(event_ids)), Event)
+            rows = self.session.exec(query).all()
             rows = sorted(rows, key=lambda event: event.event_time, reverse=True)
+            rows = filter_events_for_feature(feature_name, rows)
             return rows[: max(1, limit)]
 
-        rows = self.session.exec(select(Event).order_by(desc(Event.event_time)).limit(600)).all()
+        rows = self.session.exec(self._scope_query(select(Event), Event).order_by(desc(Event.event_time)).limit(600)).all()
+        if not rows:
+            return []
+        rows = filter_events_for_feature(feature_name, rows)
         if not rows:
             return []
 
@@ -1217,7 +1363,7 @@ class AIWorkspaceService:
                 ids.append(int(token))
         if not ids:
             return []
-        rows = self.session.exec(select(Event).where(Event.id.in_(ids))).all()
+        rows = self.session.exec(self._scope_query(select(Event).where(Event.id.in_(ids)), Event)).all()
         return sorted(rows, key=lambda event: event.event_time, reverse=True)
 
     def _candidate_models(self) -> list[str]:
@@ -1236,6 +1382,7 @@ class AIWorkspaceService:
         system_prompt: str,
         user_payload: dict[str, Any],
         max_chars: int,
+        endpoint: str = "/ai/openai",
     ) -> str | None:
         if not self._client:
             return None
@@ -1252,6 +1399,14 @@ class AIWorkspaceService:
                             {"role": "user", "content": user_text},
                         ],
                     )
+                    if self.user_id is not None:
+                        track_openai_api_usage(
+                            self.session,
+                            user_id=self.user_id,
+                            tenant_id=self.tenant_id,
+                            endpoint=endpoint,
+                            response=result,
+                        )
                     text = (getattr(result, "output_text", "") or "").strip()
                     if text:
                         return text[:max_chars]
@@ -1267,6 +1422,14 @@ class AIWorkspaceService:
                         temperature=0.2,
                         max_tokens=900,
                     )
+                    if self.user_id is not None:
+                        track_openai_api_usage(
+                            self.session,
+                            user_id=self.user_id,
+                            tenant_id=self.tenant_id,
+                            endpoint=endpoint,
+                            response=result,
+                        )
                     choice = result.choices[0] if result.choices else None
                     text = (choice.message.content if choice and choice.message else "") or ""
                     text = text.strip()
@@ -1296,6 +1459,7 @@ class AIWorkspaceService:
                     "language": "arabic",
                 },
                 max_chars=3500,
+                endpoint="/ai/chat",
             )
             if text:
                 return text
@@ -1320,6 +1484,7 @@ class AIWorkspaceService:
                     "events": json.loads(_events_context(events, limit=60)),
                 },
                 max_chars=7000,
+                endpoint="/ai/reports/publish",
             )
             if text:
                 return text
@@ -1529,6 +1694,239 @@ class AIWorkspaceService:
         markers = {"ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂªÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾", "ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂªÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±", "analysis", "report", "dashboard", "war", "ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±ÃƒÆ’Ã†â€™Ãƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨"}
         return any(marker in text for marker in markers)
 
+    def publish_report(
+        self,
+        title: str | None,
+        prompt: str | None,
+        insight_id: int | None,
+        event_ids: list[int] | None = None,
+    ) -> dict[str, Any]:
+        insight: AIInsight | None = None
+        if insight_id is not None:
+            insight = self.session.get(AIInsight, insight_id)
+            if insight is None or not self._in_scope(insight):
+                raise ValueError("Insight not found")
 
+        if insight is None:
+            report_prompt = (prompt or "").strip()
+            if not report_prompt:
+                raise ValueError("prompt is required when insight_id is not provided")
+            insight = self.create_insight(
+                title=title or "تقرير تحليلي",
+                prompt=report_prompt,
+                event_ids=event_ids or [],
+            )
 
+        report_title = (title or insight.title or "تقرير تحليلي").strip() or "تقرير تحليلي"
+        created_at = datetime.now(timezone.utc)
+        report_id = f"{created_at.strftime('%Y%m%d%H%M%S')}-{_slug(report_title)}"
+        reports_dir = self._reports_dir()
+        reports_dir.mkdir(parents=True, exist_ok=True)
 
+        related_events = self._events_from_related_ids(insight.related_event_ids)
+        if not related_events:
+            related_events = self._load_context_events(event_ids=event_ids or [], question=insight.prompt, limit=24)
+
+        markdown = self._build_structured_markdown(
+            report_id=report_id,
+            report_title=report_title,
+            created_at=created_at,
+            prompt=insight.prompt,
+            insight_content=insight.content,
+            events=related_events,
+        )
+
+        filename = f"{report_id}.md"
+        markdown_path = reports_dir / filename
+        markdown_path.write_text(markdown, encoding="utf-8")
+
+        doc_filename = f"{report_id}.doc"
+        doc_path = reports_dir / doc_filename
+        doc_path.write_text(_markdown_to_doc_html(report_title, markdown), encoding="utf-8")
+
+        pdf_filename: str | None = f"{report_id}.pdf"
+        pdf_path = reports_dir / pdf_filename
+        try:
+            self._write_pdf(path=pdf_path, title=report_title, created_at=created_at, markdown=markdown)
+        except Exception:
+            pdf_filename = None
+
+        return {
+            "report_id": report_id,
+            "title": report_title,
+            "filename": filename,
+            "pdf_filename": pdf_filename,
+            "doc_filename": doc_filename,
+            "created_at": created_at.isoformat(),
+            "content": markdown,
+        }
+
+    def list_reports(self, limit: int = 40) -> list[dict[str, Any]]:
+        reports_dir = self._reports_dir()
+        if not reports_dir.exists():
+            return []
+        items: list[dict[str, Any]] = []
+        for path in sorted(reports_dir.glob("*.md"), reverse=True):
+            created_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+            content = path.read_text(encoding="utf-8")
+            first_line = next((line for line in content.splitlines() if line.startswith("# ")), "# تقرير")
+            title = first_line[2:].strip() if len(first_line) > 2 else "تقرير"
+            pdf_path = path.with_suffix(".pdf")
+            doc_path = path.with_suffix(".doc")
+            items.append(
+                {
+                    "report_id": path.stem,
+                    "title": title,
+                    "filename": path.name,
+                    "pdf_filename": pdf_path.name if pdf_path.exists() else None,
+                    "doc_filename": doc_path.name if doc_path.exists() else None,
+                    "created_at": created_at,
+                    "content": content[:12000],
+                }
+            )
+        return items[:limit]
+
+    def get_report_file(self, report_id: str, preferred_format: str = "pdf") -> Path | None:
+        reports_dir = self._reports_dir()
+        if not reports_dir.exists():
+            return None
+
+        format_key = str(preferred_format or "pdf").strip().lower()
+        if format_key not in {"pdf", "doc", "md"}:
+            format_key = "pdf"
+
+        candidates = {
+            "pdf": reports_dir / f"{report_id}.pdf",
+            "doc": reports_dir / f"{report_id}.doc",
+            "md": reports_dir / f"{report_id}.md",
+        }
+        preferred = candidates[format_key]
+        if preferred.exists():
+            return preferred
+
+        for key in ("pdf", "doc", "md"):
+            if candidates[key].exists():
+                return candidates[key]
+        return None
+
+    def _build_structured_markdown(
+        self,
+        *,
+        report_id: str,
+        report_title: str,
+        created_at: datetime,
+        prompt: str,
+        insight_content: str,
+        events: list[Event],
+    ) -> str:
+        source_counts = Counter(event.source_type for event in events)
+        severe_count = sum(1 for event in events if event.severity >= 4)
+        top_events = events[:12]
+        executive = _clean_lines(insight_content)
+        executive_text = " ".join(line for line in executive if line)[:1200] or "لا يوجد ملخص متاح."
+
+        lines: list[str] = [
+            f"# {report_title}",
+            "",
+            "## بيانات التقرير",
+            f"- رقم التقرير: {report_id}",
+            f"- وقت الإنشاء (UTC): {created_at.isoformat()}",
+            f"- طلب التحليل: {prompt or 'غير متوفر'}",
+            "",
+            "## الملخص التنفيذي",
+            executive_text,
+            "",
+            "## الصورة التشغيلية",
+            f"- عدد الأحداث المحللة: {len(events)}",
+            f"- عدد الأحداث عالية الشدة (S4-S5): {severe_count}",
+            f"- توزيع المصادر: {dict(source_counts)}",
+            "",
+            "## أبرز التطورات",
+        ]
+
+        if top_events:
+            for event in top_events:
+                lines.append(
+                    f"- [{event.source_type}] S{event.severity} | {event.event_time.isoformat()} | {event.title}"
+                )
+                if event.url:
+                    lines.append(f"  المصدر: {event.url}")
+        else:
+            lines.append("- لا توجد أحداث متاحة ضمن نطاق التقرير.")
+
+        lines.extend(
+            [
+                "",
+                "## تحليل الذكاء",
+                executive_text,
+                "",
+                "## توصيات القرار",
+                "- المتابعة اللحظية للمصادر الموثوقة وربط المستجدات بخطة تشغيل موحدة.",
+                "- إعادة تقييم المشهد كل 30 دقيقة أثناء التصعيد.",
+                "- التمييز بين الأرقام المؤكدة وغير المؤكدة قبل النشر.",
+                "",
+                "## أسئلة متابعة",
+                "- ما السيناريو الأكثر ترجيحاً خلال 6-12 ساعة القادمة؟",
+                "- هل تحتاج ملخصاً قطاعياً (طيران/ملاحة/سيبراني)؟",
+            ]
+        )
+
+        return "\n".join(lines)[:16000]
+
+    def _write_pdf(self, *, path: Path, title: str, created_at: datetime, markdown: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        regular_font, bold_font = _register_pdf_fonts()
+        pdf = canvas.Canvas(str(path), pagesize=A4)
+        width, height = A4
+        margin_x = 40
+        margin_top = 42
+        margin_bottom = 42
+        max_width = width - (2 * margin_x)
+        y = height - margin_top
+
+        def ensure_space(min_height: float = 16) -> None:
+            nonlocal y
+            if y - min_height < margin_bottom:
+                pdf.showPage()
+                y = height - margin_top
+
+        def draw_line(text: str, *, bold: bool = False, font_size: int = 11, gap: int = 5) -> None:
+            nonlocal y
+            value = str(text or "").strip()
+            if not value:
+                y -= gap
+                return
+            font_name = bold_font if bold else regular_font
+            prepared = _rtl_text(value)
+            wrapped = simpleSplit(prepared, font_name, font_size, max_width) or [prepared]
+            line_height = font_size + 4
+            ensure_space(min_height=(len(wrapped) * line_height) + gap)
+            pdf.setFont(font_name, font_size)
+            for row in wrapped:
+                y -= line_height
+                if _contains_arabic(value):
+                    pdf.drawRightString(width - margin_x, y, row)
+                else:
+                    pdf.drawString(margin_x, y, row)
+            y -= gap
+
+        draw_line(f"التقرير: {title}", bold=True, font_size=14, gap=6)
+        draw_line(f"Generated (UTC): {created_at.isoformat()}", font_size=9, gap=8)
+
+        for raw in str(markdown or "").splitlines():
+            text = raw.rstrip()
+            if not text:
+                y -= 6
+                continue
+            if text.startswith("# "):
+                draw_line(text[2:].strip(), bold=True, font_size=14, gap=7)
+                continue
+            if text.startswith("## "):
+                draw_line(text[3:].strip(), bold=True, font_size=12, gap=6)
+                continue
+            if text.startswith("- "):
+                draw_line(f"• {text[2:].strip()}", font_size=10, gap=4)
+                continue
+            draw_line(text, font_size=10, gap=4)
+
+        pdf.save()
