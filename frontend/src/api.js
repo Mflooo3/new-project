@@ -239,7 +239,11 @@ export async function apiDownload(path) {
 }
 
 export function streamEvents(onEvent) {
-  const streamUrl = new URL(`${API_BASE}/stream`);
+  const streamEndpoint = `${API_BASE}/stream`;
+  const streamUrl =
+    typeof window !== "undefined"
+      ? new URL(streamEndpoint, window.location.origin)
+      : new URL(streamEndpoint, "http://localhost");
   const auth = readAuthStorage();
   if (auth?.access_token) {
     streamUrl.searchParams.set("access_token", auth.access_token);
