@@ -172,4 +172,16 @@ curl -X POST http://localhost:8000/sources \
 
 ## Production Notes
 - This scaffold now supports Postgres + Redis worker mode.
-- Add OIDC/JWT and role mapping if you need multi-user auth.
+- Production compose is available in:
+  - `docker-compose.prod.yml`
+  - `frontend/Dockerfile.prod`
+  - `frontend/nginx/default.conf`
+- Production deploy command:
+  - `docker compose -f docker-compose.prod.yml --env-file .env up -d --build`
+- In production `.env`, set:
+  - `ENVIRONMENT=production`
+  - `VITE_API_BASE_URL_PROD=/api`
+  - `PASSWORD_RESET_URL_TEMPLATE=https://reconlab.ae/?auth=reset&token={token}`
+  - `CORS_ORIGINS=https://reconlab.ae,https://www.reconlab.ae,http://100.50.24.107`
+- For EC2 + domain deployment steps, see:
+  - `AWS_EC2_DEPLOY.md`

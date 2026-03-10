@@ -21,10 +21,13 @@ from app.services.scheduler import start_scheduler, stop_scheduler
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
+cors_origins = settings.cors_origins_list
+allow_credentials = cors_origins != ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

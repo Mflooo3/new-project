@@ -3,9 +3,10 @@ function resolveDefaultApiBase() {
     const protocol = window.location.protocol || "http:";
     const host = window.location.hostname || "localhost";
     const port = String(window.location.port || "");
+    const hostWithPort = window.location.host || host;
     if (port === "5174") return `${protocol}//${host}:8012`;
     if (port === "5173") return `${protocol}//${host}:8010`;
-    return `${protocol}//${host}:8012`;
+    return `${protocol}//${hostWithPort}/api`;
   }
   return "http://localhost:8012";
 }

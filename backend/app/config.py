@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     prediction_review_seconds: int = 600
     prediction_review_min_interval_minutes: int = 10
     news_max_age_hours: int = 24
+    cors_origins: str = "*"
     use_redis_worker: bool = False
     redis_url: str = "redis://localhost:6379/0"
     ingest_queue_name: str = "ingestion"
@@ -167,6 +168,13 @@ class Settings(BaseSettings):
     @cached_property
     def keywords(self) -> set[str]:
         return {item.strip().lower() for item in self.gulf_keywords.split(",") if item.strip()}
+
+    @cached_property
+    def cors_origins_list(self) -> list[str]:
+        raw = [item.strip() for item in str(self.cors_origins or "").split(",") if item.strip()]
+        if not raw:
+            return ["*"]
+        return raw
 
     @cached_property
     def trusted_domains_set(self) -> set[str]:
